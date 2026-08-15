@@ -31,7 +31,7 @@ state=""
 while [[ "$state" != success && "$state" != failed ]]; do
   if (( SECONDS >= deadline )); then
     echo 'Timed out waiting for the Windows build watcher.' >&2
-    echo 'Make sure the VM is running and the Docker user is logged in.' >&2
+    echo 'The watcher heartbeat is missing or stale. Run Z:\\windows-builder\\install-watcher.bat once in the VM console.' >&2
     exit 1
   fi
   if [[ -f "$status" ]]; then

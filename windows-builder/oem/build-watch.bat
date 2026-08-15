@@ -2,9 +2,14 @@
 setlocal EnableExtensions
 set ROOT=Z:\windows-builder
 
-rem Keep one watcher alive for instant host-triggered builds. mkdir is atomic,
-rem so the watchdog task cannot start a duplicate copy.
-if exist "C:\BuildTools\watcher.lock" exit /b 0
+rem Keep one watcher alive for instant host-triggered builds. A stale lock can
+rem survive a VM suspend or task restart, so use the heartbeat to distinguish
+rem an active watcher from a dead one before claiming the lock.
+if exist "C:\BuildTools\watcher.lock" (
+  powershell.exe -NoProfile -Command "$p='Z:\windows-builder\watcher.heartbeat'; if ((Test-Path $p) -and (((Get-Date)-(Get-Item $p).LastWriteTime).TotalSeconds -lt 15)) { exit 0 } else { exit 1 }"
+  if not errorlevel 1 exit /b 0
+  rmdir /s /q "C:\BuildTools\watcher.lock" >nul 2>&1
+)
 mkdir "C:\BuildTools\watcher.lock" >nul 2>&1
 if not exist "C:\BuildTools\watcher.lock" exit /b 0
 
