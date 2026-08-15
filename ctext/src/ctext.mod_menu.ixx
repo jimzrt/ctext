@@ -65,6 +65,7 @@ namespace {
     using SaveStateInit = void(__thiscall*)(void*);
     using SaveStateCopy = void(__thiscall*)(void*, void*);
     using SaveStateFile = int(__fastcall*)(int, void*);
+    using SaveStateSync = void(__thiscall*)(void*);
 
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
@@ -73,6 +74,11 @@ namespace {
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto toBuffer = ADDR_AS(SaveStateCopy, ct::addr::SAVE_STATE_TO_BUFFER);
         auto write = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_WRITE);
+        auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
+        // The native save path refreshes the serialized field/bookmark
+        // cursor before copying the live state. Without this, map changes
+        // are saved but the last synchronized field position is retained.
+        sync(reinterpret_cast<std::uint8_t*>(manager) + 0x68dc);
         init(quickState.data());
         toBuffer(liveState, quickState.data());
         // The native routine returns zero on a successful write.
@@ -84,7 +90,6 @@ namespace {
         if (!manager) return false;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
-        using SaveStateSync = void(__thiscall*)(void*);
         auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
         // 0x615E30 ends in `ret 8`: both arguments are stack arguments and
         // the callee removes them. Declaring this __cdecl corrupts ESP as
