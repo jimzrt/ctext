@@ -7,8 +7,9 @@ set SOURCE=C:\CTExtSource
 set GIT=C:\BuildTools\git\cmd\git.exe
 set REPO=https://github.com/jimzrt/ctext.git
 if not exist "%GIT%" (
-  echo MinGit is not installed. Run Z:\windows-builder\install-watcher.bat once.
-  exit /b 1
+  echo MinGit is not installed. Installing it now...
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File Z:\windows-builder\oem\install-git.ps1
+  if errorlevel 1 (echo MinGit installation failed.& exit /b 1)
 )
 
 if not exist "%SOURCE%\.git" (
