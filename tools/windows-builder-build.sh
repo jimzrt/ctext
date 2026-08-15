@@ -5,7 +5,6 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 request="$repo_root/windows-builder/build.request"
 status="$repo_root/windows-builder/build.status"
 log="$repo_root/windows-builder/build.log"
-fingerprint="$repo_root/windows-builder/source.fingerprint"
 timeout_seconds=${CTEXT_BUILD_TIMEOUT:-1800}
 
 if [[ ! -d "$repo_root/windows-builder/windows" ]]; then
@@ -14,20 +13,16 @@ if [[ ! -d "$repo_root/windows-builder/windows" ]]; then
 fi
 
 rm -f -- "$request" "$status" "$log"
-# Shared-drive timestamp caching can make MSBuild miss changed modules. Give
-# the guest an explicit source revision and let the batch file invalidate its
-# local intermediates only when this revision changes.
-tmp_fingerprint="$fingerprint.tmp"
-find "$repo_root/ctext" "$repo_root/loader" -type f \( \
-  -name '*.ixx' -o -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \
-  -o -name '*.vcxproj' -o -name '*.filters' -o -name '*.json' -o -name '*.def' -o -name '*.rc' \
-\) -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}' > "$tmp_fingerprint"
-mv -f -- "$tmp_fingerprint" "$fingerprint"
-# The Dockur shared drive can briefly lag behind host writes.  Flush and give
-# the bind mount a short settling window before the Windows watcher snapshots
-# the source tree and starts incremental MSBuild.
+# Publish the exact working tree the VM will build. The VM fetches this branch
+# into a local checkout, so MSBuild can make normal per-file decisions.
+if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; then
+  git -C "$repo_root" add -A
+  git -C "$repo_root" commit -m "Windows build snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+fi
+git -C "$repo_root" push origin HEAD:build/ctext
+
 sync
-sleep 2
+sleep 1
 : > "$request"
 echo 'Build requested. Waiting for the Windows VM...'
 

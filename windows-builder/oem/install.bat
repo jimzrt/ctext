@@ -11,6 +11,8 @@ if not exist C:\BuildTools\nuget.exe (
   curl.exe -L --fail --retry 5 -o C:\BuildTools\nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
   if errorlevel 1 exit /b 1
 )
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\OEM\install-git.ps1
+if errorlevel 1 exit /b 1
 
 rem Let the Linux host request builds through the shared folder. The scheduled
 rem task runs at the interactive user's logon, where Dockur's Z: drive exists.

@@ -34,9 +34,9 @@ Alternatively, run `tools/deploy-and-launch.sh` to copy the build artifacts into
 
 Quick-save files use the reserved `save_21.bin` through `save_23.bin` names, so the normal save slots are not overwritten.
 
-Once the VM has completed its first setup and the Docker user has logged in, later builds can be triggered entirely from Linux with `tools/windows-builder-build.sh`; it signals the VM through the shared folder and waits for the result.
+Once the VM has completed its first setup and the Docker user has logged in, later builds can be triggered entirely from Linux with `tools/windows-builder-build.sh`. The script commits the current tree to the `build/ctext` branch and pushes it; the VM fetches that branch into a local Windows checkout and builds there, so MSBuild remains incremental per file while the shared folder only carries the request and package.
 
-If the VM was created before the watcher was added, or after updating the builder scripts, run `Z:\windows-builder\install-watcher.bat` once in the VM console. It installs a persistent instant watcher plus a recovery watchdog for Docker/VM resumes.
+If the VM was created before the watcher was added, or after updating the builder scripts, run `Z:\windows-builder\install-watcher.bat` once in the VM console. It installs MinGit, a persistent instant watcher, and a recovery watchdog for Docker/VM resumes.
 
 ## How do I uninstall it?
 
