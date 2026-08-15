@@ -49,6 +49,7 @@ namespace {
     // unsaved in-memory progress (not merely the last disk save).
     constexpr int kQuickSlotCount = 3;
     constexpr int kQuickSlotBase = 21; // outside the normal 0..20 slots
+    constexpr int kNativeBookmarkSlot = 20;
     constexpr std::size_t kSaveStateBytes = 0x8000;
     int quickSlot{};
     // The executable constructs this as a stack object. Keep equivalent
@@ -84,21 +85,27 @@ namespace {
         auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
         using SaveStateSync = void(__thiscall*)(void*);
         auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
-        using SaveStateApplyFlow = void(__cdecl*)(void*, int);
+        // 0x615E30 ends in `ret 8`: both arguments are stack arguments and
+        // the callee removes them. Declaring this __cdecl corrupts ESP as
+        // soon as the function returns because the caller removes them too.
+        using SaveStateApplyFlow = void(__stdcall*)(void*, int);
         auto applyFlow = ADDR_AS(SaveStateApplyFlow, ct::addr::SAVE_STATE_APPLY_FLOW);
         init(quickState.data());
         if (fromFile(kQuickSlotBase + quickSlot, quickState.data()) != 0) return false;
 
-        // This is the sequence used by the native load scene immediately
-        // before SAVE_STATE_APPLY_FLOW: publish the selected slot and rebuild
-        // the save metadata object. Without it, the restored state can refer
-        // to stale scene/save bookkeeping and the game may crash during the
-        // next field update.
+        // Hidden quick-save files use slots 21..23, but the game's bookkeeping
+        // only supports normal slots 0..19 plus bookmark slot 20. Publish the
+        // logical bookmark slot before rebuilding common.bin; exposing 21..23
+        // here would violate native array/range assumptions.
         auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
         *reinterpret_cast<std::uint32_t*>(canvas + 0x68ec) =
-            static_cast<std::uint32_t>(kQuickSlotBase + quickSlot);
+            static_cast<std::uint32_t>(kNativeBookmarkSlot);
         sync(canvas + 0x68dc);
-        applyFlow(quickState.data(), 0);
+
+        // Modes 2/3 are the native bookmark variants. They set the additional
+        // resume flag that makes field creation consume the saved map cursor
+        // and coordinates, which ordinary save-point loading does not need.
+        applyFlow(quickState.data(), 3);
         return true;
     }
 
