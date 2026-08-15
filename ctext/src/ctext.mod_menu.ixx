@@ -51,7 +51,10 @@ namespace {
     constexpr int kQuickSlotBase = 21; // outside the normal 0..20 slots
     constexpr std::size_t kSaveStateBytes = 0x8000;
     int quickSlot{};
-    std::array<std::uint8_t, kSaveStateBytes> quickState{};
+    // The executable constructs this as a stack object. Keep equivalent
+    // alignment for its SIMD/string members instead of relying on byte-array
+    // alignment.
+    alignas(16) std::array<std::uint8_t, kSaveStateBytes> quickState{};
     bool quickLoadPending{};
     std::string notificationText;
     int notificationFrames{};
@@ -79,10 +82,22 @@ namespace {
         if (!manager) return false;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
+        using SaveStateSync = void(__thiscall*)(void*);
+        auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
         using SaveStateApplyFlow = void(__cdecl*)(void*, int);
         auto applyFlow = ADDR_AS(SaveStateApplyFlow, ct::addr::SAVE_STATE_APPLY_FLOW);
         init(quickState.data());
         if (fromFile(kQuickSlotBase + quickSlot, quickState.data()) != 0) return false;
+
+        // This is the sequence used by the native load scene immediately
+        // before SAVE_STATE_APPLY_FLOW: publish the selected slot and rebuild
+        // the save metadata object. Without it, the restored state can refer
+        // to stale scene/save bookkeeping and the game may crash during the
+        // next field update.
+        auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
+        *reinterpret_cast<std::uint32_t*>(canvas + 0x68ec) =
+            static_cast<std::uint32_t>(kQuickSlotBase + quickSlot);
+        sync(canvas + 0x68dc);
         applyFlow(quickState.data(), 0);
         return true;
     }

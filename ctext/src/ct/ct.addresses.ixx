@@ -27,6 +27,8 @@ export namespace ct::addr {
 	P SAVE_STATE_INIT = 0x19A5A0;
 	P SAVE_STATE_WRITE = 0x19CA20;
 	P SAVE_STATE_READ = 0x19BC40;
+	// Updates the native save metadata/current-slot bookkeeping before apply.
+	P SAVE_STATE_SYNC = 0x19DA30;
 	P SAVE_STATE_TO_BUFFER = 0x212C80;
 	P SAVE_STATE_FROM_BUFFER = 0x212BA0;
 	P SAVE_STATE_APPLY = 0x2130F0;
