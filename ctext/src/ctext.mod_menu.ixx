@@ -58,7 +58,6 @@ namespace {
     using SaveStateInit = void(__thiscall*)(void*);
     using SaveStateCopy = void(__thiscall*)(void*, void*);
     using SaveStateFile = int(__fastcall*)(int, void*);
-    using SaveStateApplyFlow = void(__cdecl*)(void*, int);
 
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
@@ -74,20 +73,12 @@ namespace {
     }
 
     bool NativeQuickLoad() {
-        auto* manager = ct::ChronoCanvas::getInstance();
-        if (!manager) return false;
-        auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
-        auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
-        auto applyFlow = ADDR_AS(SaveStateApplyFlow, ct::addr::SAVE_STATE_APPLY_FLOW);
-        init(quickState.data());
-        // The native reader returns zero on success and fills the output
-        // state passed in EDX.
-        if (fromFile(kQuickSlotBase + quickSlot, quickState.data()) != 0) return false;
-        // Use the game's complete load-flow wrapper. The menu is closed by
-        // the caller first so its paused scheduler cannot interfere with the
-        // native field/map transition.
-        applyFlow(quickState.data(), 0);
-        return true;
+        // The native load-flow wrapper is not safe to call from the injected
+        // input hook yet: its ownership/calling convention is still being
+        // verified, and invoking it can corrupt the live scene and crash the
+        // game. Keep F7 fail-closed until that flow is reverse engineered.
+        LOG_DEBUG("[ctext] quick load disabled: native load flow not verified");
+        return false;
     }
 
     void QueueNotification(const std::string& text) {
