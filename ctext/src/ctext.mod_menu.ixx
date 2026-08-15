@@ -21,6 +21,7 @@ import ctext.config;
 import ctext.texture_filter;
 import ct;
 import ct.addr;
+import ct.scene;
 
 namespace ctext::mod_menu { bool HandleFieldInput(); }
 
@@ -106,6 +107,18 @@ namespace {
         // resume flag that makes field creation consume the saved map cursor
         // and coordinates, which ordinary save-point loading does not need.
         applyFlow(quickState.data(), 3);
+
+        // Applying the serialized state only updates ChronoCanvas.  Native
+        // bookmark loading then leaves the save/load scene and constructs a
+        // fresh FieldScene; that constructor consumes the bookmark resume
+        // flag and restores the saved map and coordinates.  F7 can be used
+        // without opening the native save/load UI, so perform that final
+        // scene replacement directly on the main thread.
+        auto* director = cocos2d::Director::getInstance();
+        if (!director) return false;
+        auto* fieldScene = ct::scene::SceneManager::create(0x11, 0);
+        if (!fieldScene) return false;
+        director->replaceScene(fieldScene);
         return true;
     }
 
