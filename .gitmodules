@@ -12,5 +12,5 @@
 	url = https://github.com/nothings/stb.git
 [submodule "modules/cocos2d-x"]
 	path = modules/cocos2d-x
-	url = git@github.com:TheRealBiggs/cocos2d-x-dll-headers.git
+url = https://github.com/TheRealBiggs/cocos2d-x-dll-headers.git
 	branch = headers_only

@@ -13,11 +13,13 @@ if not exist "%GIT%" (
 )
 
 if not exist "%SOURCE%\.git" (
-  "%GIT%" clone --branch build/ctext --single-branch "%REPO%" "%SOURCE%" || exit /b 1
+  "%GIT%" clone --recurse-submodules --branch build/ctext --single-branch "%REPO%" "%SOURCE%" || exit /b 1
 ) else (
   "%GIT%" -C "%SOURCE%" fetch origin build/ctext || exit /b 1
   "%GIT%" -C "%SOURCE%" reset --hard FETCH_HEAD || exit /b 1
 )
+"%GIT%" -C "%SOURCE%" submodule sync --recursive || exit /b 1
+"%GIT%" -C "%SOURCE%" submodule update --init --recursive || exit /b 1
 
 call "%SOURCE%\windows-builder\build-local.bat"
 exit /b %errorlevel%
