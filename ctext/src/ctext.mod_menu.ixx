@@ -23,7 +23,11 @@ import ct;
 import ct.addr;
 import ct.scene;
 
-namespace ctext::mod_menu { bool HandleFieldInput(); }
+namespace ctext::mod_menu {
+    bool HandleFieldInput();
+    void SetCurrentFieldImpl(void* fieldImpl);
+    void RestoreFieldPosition(void* fieldImpl);
+}
 
 namespace {
     constexpr int kMainItemCount = 6;
@@ -58,6 +62,11 @@ namespace {
     // alignment.
     alignas(16) std::array<std::uint8_t, kSaveStateBytes> quickState{};
     bool quickLoadPending{};
+    void* currentFieldImpl{};
+    bool savedFieldPositionValid{};
+    bool restoreFieldPositionPending{};
+    std::int32_t savedFieldX{};
+    std::int32_t savedFieldY{};
     std::string notificationText;
     int notificationFrames{};
     void QueueNotification(const std::string& text);
@@ -70,6 +79,16 @@ namespace {
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
         if (!manager) return false;
+        if (currentFieldImpl) {
+            auto* movement = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(currentFieldImpl) + 0x854);
+            if (movement) {
+                savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x98);
+                savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0xa4);
+                savedFieldPositionValid = true;
+                LOG_DEBUG("[ctext] quick position captured: " << savedFieldX << ", " << savedFieldY);
+            }
+        }
         auto* liveState = reinterpret_cast<std::uint8_t*>(manager) + ct::addr::SAVE_STATE_OFFSET;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto toBuffer = ADDR_AS(SaveStateCopy, ct::addr::SAVE_STATE_TO_BUFFER);
@@ -123,8 +142,28 @@ namespace {
         if (!director) return false;
         auto* fieldScene = ct::scene::SceneManager::create(0x11, 0);
         if (!fieldScene) return false;
+        restoreFieldPositionPending = savedFieldPositionValid;
         director->replaceScene(fieldScene);
         return true;
+    }
+
+    void SetCurrentFieldImpl(void* fieldImpl) {
+        currentFieldImpl = fieldImpl;
+    }
+
+    void RestoreFieldPosition(void* fieldImpl) {
+        if (!restoreFieldPositionPending || !fieldImpl) return;
+        auto* movement = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
+        if (!movement) return;
+        *reinterpret_cast<std::int32_t*>(movement + 0x98) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(movement + 0xa4) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(movement + 0xa0) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(movement + 0xac) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(movement + 0x90) = 0;
+        *reinterpret_cast<std::int32_t*>(movement + 0x94) = 0;
+        restoreFieldPositionPending = false;
+        LOG_DEBUG("[ctext] quick position restored: " << savedFieldX << ", " << savedFieldY);
     }
 
     void ProcessDeferredActions() {
@@ -720,6 +759,14 @@ namespace {
 }
 
 export namespace ctext::mod_menu {
+    void SetCurrentFieldImpl(void* fieldImpl) {
+        ::SetCurrentFieldImpl(fieldImpl);
+    }
+
+    void RestoreFieldPosition(void* fieldImpl) {
+        ::RestoreFieldPosition(fieldImpl);
+    }
+
     void ProcessDeferredActions() {
         ::ProcessDeferredActions();
     }

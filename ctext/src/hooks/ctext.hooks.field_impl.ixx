@@ -42,11 +42,13 @@ namespace {
 	void, FieldImpl, MovementUpdate,
 		FIELD_IMPL_MOVEMENT_UPDATE
 	) {
+		ctext::mod_menu::SetCurrentFieldImpl(this);
 		// Polling here catches SPACE even while the player is standing still.
 		// Returning without calling the original also blocks cardinal movement.
 		if (ctext::mod_menu::HandleFieldInput())
 			return;
 		C_CALL_ORIG();
+		ctext::mod_menu::RestoreFieldPosition(this);
 	}
 
 	FN_HOOK_A(
