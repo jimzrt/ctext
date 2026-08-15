@@ -52,8 +52,10 @@ namespace {
     constexpr std::size_t kSaveStateBytes = 0x8000;
     int quickSlot{};
     std::array<std::uint8_t, kSaveStateBytes> quickState{};
+    bool quickLoadPending{};
     std::string notificationText;
     int notificationFrames{};
+    void QueueNotification(const std::string& text);
 
     using SaveStateInit = void(__thiscall*)(void*);
     using SaveStateCopy = void(__thiscall*)(void*, void*);
@@ -73,12 +75,25 @@ namespace {
     }
 
     bool NativeQuickLoad() {
-        // The native load-flow wrapper is not safe to call from the injected
-        // input hook yet: its ownership/calling convention is still being
-        // verified, and invoking it can corrupt the live scene and crash the
-        // game. Keep F7 fail-closed until that flow is reverse engineered.
-        LOG_DEBUG("[ctext] quick load disabled: native load flow not verified");
-        return false;
+        auto* manager = ct::ChronoCanvas::getInstance();
+        if (!manager) return false;
+        auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
+        auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
+        using SaveStateApplyFlow = void(__cdecl*)(void*, int);
+        auto applyFlow = ADDR_AS(SaveStateApplyFlow, ct::addr::SAVE_STATE_APPLY_FLOW);
+        init(quickState.data());
+        if (fromFile(kQuickSlotBase + quickSlot, quickState.data()) != 0) return false;
+        applyFlow(quickState.data(), 0);
+        return true;
+    }
+
+    void ProcessDeferredActions() {
+        if (!quickLoadPending) return;
+        quickLoadPending = false;
+        const bool ok = NativeQuickLoad();
+        LOG_DEBUG("[ctext] quick load slot " << quickSlot << ": " << (ok ? "ok" : "failed"));
+        QueueNotification(ok ? "Quick load complete - slot " + std::to_string(quickSlot + 1)
+                              : "Quick load unavailable - slot " + std::to_string(quickSlot + 1));
     }
 
     void QueueNotification(const std::string& text) {
@@ -665,6 +680,10 @@ namespace {
 }
 
 export namespace ctext::mod_menu {
+    void ProcessDeferredActions() {
+        ::ProcessDeferredActions();
+    }
+
     bool HandleFieldInput() {
         static bool speedApplied = false;
         if (!speedApplied) {
@@ -710,10 +729,11 @@ export namespace ctext::mod_menu {
                 QueueNotification("Quick-save slot " + std::to_string(quickSlot + 1));
             } else if (i == 6) {
                 if (menuLayer) CloseMenu();
-                const bool ok = NativeQuickLoad();
-                LOG_DEBUG("[ctext] quick load slot " << quickSlot << ": " << (ok ? "ok" : "failed"));
-                QueueNotification(ok ? "Quick load complete - slot " + std::to_string(quickSlot + 1)
-                                      : "Quick load unavailable - slot " + std::to_string(quickSlot + 1));
+                // The load flow replaces the active field/scene. Queue it for
+                // the main-loop boundary instead of running it inside the
+                // movement/input hook that detected F7.
+                quickLoadPending = true;
+                QueueNotification("Quick load pending - slot " + std::to_string(quickSlot + 1));
             }
         }
 
@@ -745,6 +765,7 @@ export namespace ctext::mod_menu {
     }
 
     void RefreshStatusOverlay() {
+        ProcessDeferredActions();
         EnsureStatusOverlay();
     }
 

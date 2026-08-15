@@ -27,6 +27,7 @@ namespace {
     void __fastcall MainLoopHook(cocos2d::Director* director, void*) {
         ctext::mod_menu::HandleFieldInput();
         originalMainLoop(director);
+        ctext::mod_menu::ProcessDeferredActions();
         ctext::mod_menu::RefreshStatusOverlay();
     }
 
