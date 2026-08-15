@@ -16,6 +16,22 @@ export namespace ct::addr {
 	P DETCHMAN_RESOURCE_LOAD_FILE_ENTRY = 0xB9DD0;
 
 	P FIELD_IMPL_USER_SCROLL_DIAGONAL = 0x175DA0;
+	// Field input dispatcher; this runs for cardinal and diagonal movement.
+	P FIELD_IMPL_MOVEMENT_UPDATE = 0x175A40;
+	// Final damage helper used by the proven chrono_modloader god-mode patch.
+	P DAMAGE_TARGET = 0x8F980;
+
+	// Native save-state helpers (RVA, Chrono Trigger 1.0 PC executable).
+	// SAVE_STATE_TO_BUFFER copies the live state into the game's serialized
+	// state layout; SAVE_STATE_FROM_BUFFER applies that layout back.
+	P SAVE_STATE_INIT = 0x19A5A0;
+	P SAVE_STATE_WRITE = 0x19CA20;
+	P SAVE_STATE_READ = 0x19BC40;
+	P SAVE_STATE_TO_BUFFER = 0x212C80;
+	P SAVE_STATE_FROM_BUFFER = 0x212BA0;
+	P SAVE_STATE_APPLY = 0x2130F0;
+	P SAVE_STATE_APPLY_FLOW = 0x215E30;
+	P SAVE_STATE_OFFSET = 0x28;
 
 	P MSG_WINDOW_CLOSE = 0x195C70;
 	P MSG_WINDOW_SETUP = 0x195E30;

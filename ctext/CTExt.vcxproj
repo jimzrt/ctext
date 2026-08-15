@@ -35,7 +35,8 @@
   <PropertyGroup>
     <TargetName>ctext</TargetName>
     <OutDir>$(SolutionDir)\build\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)\build\$(Configuration)\intermediate\ctext\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'==''">$(SolutionDir)\build\$(Configuration)\intermediate\ctext\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'!=''">$(CTExtIntRoot)ctext\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -109,6 +110,8 @@
     <ClCompile Include="src\ctext.audio_manager.ixx" />
     <ClCompile Include="src\ctext.config.ixx" />
     <ClCompile Include="src\ctext.ma_sound_task.ixx" />
+    <ClCompile Include="src\ctext.mod_menu.ixx" />
+    <ClCompile Include="src\ctext.texture_filter.ixx" />
     <ClCompile Include="src\ctext.script_manager.ixx" />
     <ClCompile Include="src\ctext.singleton.ixx" />
     <ClCompile Include="src\ctext.voice_acting_manager.ixx" />

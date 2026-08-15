@@ -8,6 +8,7 @@ export module ctext.hooks:ctr.resource_manager;
 
 import ct.addr;
 import ctext.config;
+import ctext.texture_filter;
 
 import std;
 
@@ -22,8 +23,7 @@ namespace {
 	) {
 		auto* res = CALL_ORIG(ctr_ResourceManager_createTexture, filename, image);
 
-		if (res != nullptr)
-			res->setTexParameters({ GL_NEAREST, GL_NEAREST, GL_CLAMP, GL_CLAMP });
+		ctext::texture_filter::Register(res);
 
 		return res;
 	}
@@ -32,7 +32,6 @@ namespace {
 
 namespace ctext::hooks {
 	void EnableCtrResourceManagerHooks() {
-		if (ctext::Config::Get().GraphicsForceNearestFilter)
-			ENABLE_FN_HOOK(ctr_ResourceManager_createTexture);
+		ENABLE_FN_HOOK(ctr_ResourceManager_createTexture);
 	}
 }

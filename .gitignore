@@ -396,3 +396,13 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+# Linux-side MinGW/test artifacts
+/build-linux/
+/windows-builder/windows/
+/windows-builder/artifacts/
+/windows-builder/build.request
+/windows-builder/build.status
+/windows-builder/build.log
+/windows-builder/build.running
+/windows-builder/source.fingerprint
+/windows-builder/watcher.heartbeat

@@ -19,13 +19,15 @@ namespace {
 
 
 	cocos2d::TTFConfig& GetTtfConfig(int fontSize) {
-		if (!ttfConfigs.contains(fontSize)) {
-			auto path = std::filesystem::current_path();
-			path /= ctext::Config::Get().FontCustomFont;
+		auto path = std::filesystem::current_path();
+		path /= ctext::Config::Get().FontCustomFont;
+		const auto pathString = path.generic_string();
+		if (!ttfConfigs.contains(fontSize) ||
+			ttfConfigs[fontSize].fontFilePath != pathString) {
 
 			cocos2d::TTFConfig ttfConfig;
 			ttfConfig.fontSize = static_cast<float>(fontSize);
-			ttfConfig.fontFilePath = path.generic_string();
+			ttfConfig.fontFilePath = pathString;
 
 			ttfConfigs[fontSize] = std::move(ttfConfig);
 		}
@@ -43,7 +45,7 @@ namespace {
 
 		cocos2d::Label* label = nullptr;
 
-		if (cfg.FontUseCustomFont) {
+		if (cfg.FontUseCustomFont && cfg.IsCustomFontAvailable()) {
 			const auto& ttfConfig = GetTtfConfig(cfg.FontUseFixedFontSize ? cfg.FontFixedFontSize : fontSize);
 			label = cocos2d::Label::create();
 			label->setTTFConfig(ttfConfig);
@@ -61,9 +63,8 @@ namespace {
 
 export namespace ctext::hooks {
 	void EnableCtrHooks() {
-		const auto& cfg = ctext::Config::Get();
-
-		if (cfg.FontUseCustomFont || cfg.FontUseFixedFontSize || cfg.FontForceNearestFilter)
-			ENABLE_FN_HOOK(ctr_CreateLabel);
+		// Keep this hook installed even when the default font is selected so the
+		// menu can switch the font for labels created after the toggle.
+		ENABLE_FN_HOOK(ctr_CreateLabel);
 	}
 }

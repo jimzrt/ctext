@@ -8,6 +8,11 @@
 		"force_nearest_filter": true
 	},
 
+	"gameplay": {
+		"time_scale": 1.0,
+		"god_mode": false
+	},
+
 	"font": {
 		"force_nearest_filter": true,
 

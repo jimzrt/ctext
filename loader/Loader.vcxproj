@@ -45,12 +45,14 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)\build\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)\build\$(Configuration)\intermediate\loader\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'==''">$(SolutionDir)\build\$(Configuration)\intermediate\loader\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'!=''">$(CTExtIntRoot)loader\</IntDir>
     <TargetName>winmm</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <OutDir>$(SolutionDir)\build\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)\build\$(Configuration)\intermediate\loader\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'==''">$(SolutionDir)\build\$(Configuration)\intermediate\loader\</IntDir>
+    <IntDir Condition="'$(CTExtIntRoot)'!=''">$(CTExtIntRoot)loader\</IntDir>
     <TargetName>winmm</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

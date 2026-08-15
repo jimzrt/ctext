@@ -78,6 +78,12 @@
     <ClCompile Include="src\ctext.ma_sound_task.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
+      <ClCompile Include="src\ctext.mod_menu.ixx">
+        <Filter>Source Files</Filter>
+      </ClCompile>
+      <ClCompile Include="src\ctext.texture_filter.ixx">
+        <Filter>Source Files</Filter>
+      </ClCompile>
     <ClCompile Include="src\ct\audio\ct.audio.ixx">
       <Filter>Source Files\ct\audio</Filter>
     </ClCompile>
