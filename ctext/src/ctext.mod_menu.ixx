@@ -14,6 +14,7 @@ module;
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <fstream>
 
 export module ctext.mod_menu;
 
@@ -65,8 +66,15 @@ namespace {
     void* currentFieldImpl{};
     bool savedFieldPositionValid{};
     bool restoreFieldPositionPending{};
+    unsigned restoreFieldPositionFrames{};
     std::int32_t savedFieldX{};
     std::int32_t savedFieldY{};
+
+    void QuickLoadLog(const std::string& message) {
+        std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
+                          std::ios::app);
+        if (log) log << message << '\n';
+    }
     std::string notificationText;
     int notificationFrames{};
     void QueueNotification(const std::string& text);
@@ -87,6 +95,8 @@ namespace {
                 savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0xa4);
                 savedFieldPositionValid = true;
                 LOG_DEBUG("[ctext] quick position captured: " << savedFieldX << ", " << savedFieldY);
+                QuickLoadLog("captured " + std::to_string(savedFieldX) + "," +
+                             std::to_string(savedFieldY));
             }
         }
         auto* liveState = reinterpret_cast<std::uint8_t*>(manager) + ct::addr::SAVE_STATE_OFFSET;
@@ -143,6 +153,7 @@ namespace {
         auto* fieldScene = ct::scene::SceneManager::create(0x11, 0);
         if (!fieldScene) return false;
         restoreFieldPositionPending = savedFieldPositionValid;
+        restoreFieldPositionFrames = restoreFieldPositionPending ? 120u : 0u;
         director->replaceScene(fieldScene);
         return true;
     }
@@ -162,8 +173,12 @@ namespace {
         *reinterpret_cast<std::int32_t*>(movement + 0xac) = savedFieldY;
         *reinterpret_cast<std::int32_t*>(movement + 0x90) = 0;
         *reinterpret_cast<std::int32_t*>(movement + 0x94) = 0;
-        restoreFieldPositionPending = false;
+        if (restoreFieldPositionFrames > 0) --restoreFieldPositionFrames;
+        if (restoreFieldPositionFrames == 0) restoreFieldPositionPending = false;
         LOG_DEBUG("[ctext] quick position restored: " << savedFieldX << ", " << savedFieldY);
+        QuickLoadLog("restored " + std::to_string(savedFieldX) + "," +
+                     std::to_string(savedFieldY) + " remaining=" +
+                     std::to_string(restoreFieldPositionFrames));
     }
 
     void ProcessDeferredActions() {
