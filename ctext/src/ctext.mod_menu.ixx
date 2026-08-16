@@ -75,6 +75,7 @@ namespace {
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
     bool restorePositionPending{};
+    bool cameraSyncPending{};
     int movementTraceFrames{};
     std::int32_t lastTracedActorX{INT32_MIN};
     std::int32_t lastTracedActorY{INT32_MIN};
@@ -181,6 +182,7 @@ namespace {
     // It applies the pending x/y motion and mirrors the result into the
     // record's rendering coordinates.
     using FieldActorApplyMotion = void(__stdcall*)(void*);
+    using FieldImplSyncPosition = void(__fastcall*)(void*);
 
     void TraceFieldActorFrame(void* fieldImpl) {
         if (movementTraceFrames <= 0 || !fieldImpl) return;
@@ -376,15 +378,7 @@ namespace {
         *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
 
-        // Normal movement keeps these native camera coordinates in lockstep
-        // with the active actor: +133cc/+133d0 resolve to the actor, while
-        // +133c4/+133c8 hold the preceding camera point. FieldScene setup
-        // leaves all four at the map-entry cursor, so restore that state too.
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133c4) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133c8) = savedFieldY;
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133cc) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133d0) = savedFieldY;
-
+        cameraSyncPending = true;
         restorePositionPending = false;
         QuickLoadLog("restored actor after native initializer current=" +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
@@ -400,6 +394,13 @@ namespace {
         LOG_DEBUG("[ctext] quick load slot " << quickSlot << ": " << (ok ? "ok" : "failed"));
         QueueNotification(ok ? "Quick load complete - slot " + std::to_string(quickSlot + 1)
                               : "Quick load unavailable - slot " + std::to_string(quickSlot + 1));
+    }
+
+    void SyncFieldPositionAfterFrame(void* fieldImpl) {
+        if (!cameraSyncPending || !fieldImpl) return;
+        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(fieldImpl);
+        cameraSyncPending = false;
+        QuickLoadLog("native field position/camera sync completed");
     }
 
     void QueueNotification(const std::string& text) {
@@ -996,6 +997,7 @@ export namespace ctext::mod_menu {
 
     void ObserveFieldActorFrame(void* fieldImpl) {
         ::TraceFieldActorFrame(fieldImpl);
+        ::SyncFieldPositionAfterFrame(fieldImpl);
     }
 
     void ProcessDeferredActions() {
