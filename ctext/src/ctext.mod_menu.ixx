@@ -181,6 +181,9 @@ namespace {
     // It applies the pending x/y motion and mirrors the result into the
     // record's rendering coordinates.
     using FieldActorApplyMotion = void(__stdcall*)(void*);
+    // chrono.exe 0x576780: FieldImpl method which reads the active actor's
+    // authoritative coordinates and refreshes the field controller/camera.
+    using FieldImplResyncActiveActor = void(__thiscall*)(void*);
 
     void TraceFieldActorFrame(void* fieldImpl) {
         if (movementTraceFrames <= 0 || !fieldImpl) return;
@@ -369,6 +372,12 @@ namespace {
         *reinterpret_cast<std::int32_t*>(record + 0xa4) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
+
+        // The actor record is now exact, but FieldScene constructed its
+        // controller/camera from the map-entry cursor.  Use the native
+        // resync layer rather than deriving a camera translation ourselves.
+        ADDR_AS(FieldImplResyncActiveActor,
+                ct::addr::FIELD_IMPL_RESYNC_ACTIVE_ACTOR)(fieldImpl);
         restorePositionPending = false;
         QuickLoadLog("restored actor after native initializer current=" +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
