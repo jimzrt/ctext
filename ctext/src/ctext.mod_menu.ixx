@@ -118,6 +118,44 @@ namespace {
         }
     }
 
+    void LogFieldCoordinateCandidates(void* fieldImpl, std::uint8_t* canvas) {
+        if (!fieldImpl || !canvas) return;
+        auto* bytes = static_cast<std::uint8_t*>(fieldImpl);
+        auto* state = *reinterpret_cast<std::uint8_t**>(bytes + 0x850);
+        auto* movement = *reinterpret_cast<std::uint8_t**>(bytes + 0x854);
+        if (!state || !movement) return;
+        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
+        QuickLoadLog("coord state active=" + std::to_string(active) +
+                     " map=" + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1010)) +
+                     " tile=" + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1014)) +
+                     "," + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1018)));
+        QuickLoadLog("coord movement d=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x98)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0xa4)) +
+                     " anchor=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x148)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x14c)) +
+                     " target=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)) +
+                     " bounds=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x38)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x40)));
+        if (active >= 0 && active < 0x80 && (active & 1) == 0) {
+            auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+            QuickLoadLog("coord record=" + std::to_string(reinterpret_cast<std::uintptr_t>(record)) +
+                         " p84=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x84)) +
+                         " p90=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x90)) +
+                         " p94=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x94)) +
+                         " p98=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x98)) +
+                         " p9c=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x9c)) +
+                         " p148=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x148)) +
+                         " p14c=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x14c)));
+        }
+        QuickLoadLog("coord manager d=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x1331c)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x13328)) +
+                     " pos=" + std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c4)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c8)));
+    }
+
     void QuickLoadLog(const std::string& message) {
         std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
                           std::ios::app);
@@ -159,6 +197,7 @@ namespace {
                              std::to_string(savedFieldY));
             }
             LogFieldRuntimeTree(currentFieldImpl);
+            LogFieldCoordinateCandidates(currentFieldImpl, canvas);
         }
         auto* liveState = reinterpret_cast<std::uint8_t*>(manager) + ct::addr::SAVE_STATE_OFFSET;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
@@ -217,7 +256,10 @@ namespace {
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0) = savedResumeY;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
-            restorePositionPending = true;
+            // Do not write an unverified candidate transform. The native
+            // bookmark remains authoritative until the actor coordinate is
+            // identified from the audit above.
+            restorePositionPending = false;
             QuickLoadLog("applied resume " + std::to_string(savedResumeX) + "," +
                          std::to_string(savedResumeY) + "," +
                          std::to_string(savedResumeDirection));
