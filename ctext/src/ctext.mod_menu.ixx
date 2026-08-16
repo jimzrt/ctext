@@ -206,7 +206,13 @@ namespace {
                      "," + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xbc)) +
                      " control=" +
                      std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)));
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)) +
+                     " viewport=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c4)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c8)) +
+                     " resolved=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133cc)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133d0)));
     }
 
     bool NativeQuickSave() {
