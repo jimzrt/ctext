@@ -69,6 +69,8 @@ namespace {
     unsigned restoreFieldPositionFrames{};
     std::int32_t savedFieldX{};
     std::int32_t savedFieldY{};
+    std::int32_t savedFieldTileX{};
+    std::int32_t savedFieldTileY{};
 
     void QuickLoadLog(const std::string& message) {
         std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
@@ -90,6 +92,14 @@ namespace {
         if (currentFieldImpl) {
             auto* movement = *reinterpret_cast<std::uint8_t**>(
                 static_cast<std::uint8_t*>(currentFieldImpl) + 0x854);
+            auto* fieldState = *reinterpret_cast<std::uint8_t**>(
+                static_cast<std::uint8_t*>(currentFieldImpl) + 0x850);
+            if (fieldState) {
+                savedFieldTileX = *reinterpret_cast<std::int32_t*>(fieldState + 0x1014);
+                savedFieldTileY = *reinterpret_cast<std::int32_t*>(fieldState + 0x1018);
+                QuickLoadLog("captured tile " + std::to_string(savedFieldTileX) + "," +
+                             std::to_string(savedFieldTileY));
+            }
             if (movement) {
                 savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x98);
                 savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0xa4);
@@ -166,6 +176,12 @@ namespace {
         if (!restoreFieldPositionPending || !fieldImpl) return;
         auto* movement = *reinterpret_cast<std::uint8_t**>(
             static_cast<std::uint8_t*>(fieldImpl) + 0x854);
+        auto* fieldState = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
+        if (fieldState && savedFieldPositionValid) {
+            *reinterpret_cast<std::int32_t*>(fieldState + 0x1014) = savedFieldTileX;
+            *reinterpret_cast<std::int32_t*>(fieldState + 0x1018) = savedFieldTileY;
+        }
         if (!movement) return;
         *reinterpret_cast<std::int32_t*>(movement + 0x98) = savedFieldX;
         *reinterpret_cast<std::int32_t*>(movement + 0xa4) = savedFieldY;
