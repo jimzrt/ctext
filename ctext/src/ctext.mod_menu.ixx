@@ -73,6 +73,7 @@ namespace {
     std::uint32_t savedResumeX{};
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
+    bool restorePositionPending{};
     void QuickLoadLog(const std::string& message);
 
     // FieldImpl's map layer owns the runtime actor nodes.  The bookmark only
@@ -147,11 +148,14 @@ namespace {
                              std::to_string(savedFieldTileY));
             }
             if (movement) {
-                savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x98);
-                savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0xa4);
+                // +0x98/+0xa4 are per-frame input deltas and are normally zero
+                // at rest. +0x150/+0x154 are the live actor coordinates used
+                // by the field collision/encounter code.
+                savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x150);
+                savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0x154);
                 savedFieldPositionValid = true;
-                LOG_DEBUG("[ctext] quick position captured: " << savedFieldX << ", " << savedFieldY);
-                QuickLoadLog("captured " + std::to_string(savedFieldX) + "," +
+                LOG_DEBUG("[ctext] quick actor position captured: " << savedFieldX << ", " << savedFieldY);
+                QuickLoadLog("captured actor " + std::to_string(savedFieldX) + "," +
                              std::to_string(savedFieldY));
             }
             LogFieldRuntimeTree(currentFieldImpl);
@@ -213,6 +217,7 @@ namespace {
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0) = savedResumeY;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
+            restorePositionPending = true;
             QuickLoadLog("applied resume " + std::to_string(savedResumeX) + "," +
                          std::to_string(savedResumeY) + "," +
                          std::to_string(savedResumeDirection));
@@ -237,7 +242,19 @@ namespace {
     }
 
     void RestoreFieldPosition(void* fieldImpl) {
-        (void)fieldImpl;
+        if (!restorePositionPending || !fieldImpl) return;
+        auto* movement = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
+        if (!movement) return;
+        *reinterpret_cast<std::int32_t*>(movement + 0x148) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(movement + 0x14c) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(movement + 0x150) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(movement + 0x154) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(movement + 0x98) = 0;
+        *reinterpret_cast<std::int32_t*>(movement + 0xa4) = 0;
+        restorePositionPending = false;
+        QuickLoadLog("restored actor " + std::to_string(savedFieldX) + "," +
+                     std::to_string(savedFieldY));
     }
 
     void ProcessDeferredActions() {
