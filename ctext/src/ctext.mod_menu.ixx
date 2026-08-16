@@ -376,6 +376,15 @@ namespace {
         *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
 
+        // Normal movement keeps these native camera coordinates in lockstep
+        // with the active actor: +133cc/+133d0 resolve to the actor, while
+        // +133c4/+133c8 hold the preceding camera point. FieldScene setup
+        // leaves all four at the map-entry cursor, so restore that state too.
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133c4) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133c8) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133cc) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133d0) = savedFieldY;
+
         restorePositionPending = false;
         QuickLoadLog("restored actor after native initializer current=" +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
