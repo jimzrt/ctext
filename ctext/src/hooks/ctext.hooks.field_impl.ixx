@@ -48,7 +48,6 @@ namespace {
 		if (ctext::mod_menu::HandleFieldInput())
 			return;
 		C_CALL_ORIG();
-		ctext::mod_menu::RestoreFieldPosition(this);
 	}
 
 	C_FN_HOOK_A(
@@ -57,6 +56,17 @@ namespace {
 	) {
 		C_CALL_ORIG();
 		ctext::mod_menu::ObserveFieldActorFrame(this);
+	}
+
+	C_FN_HOOK_A(
+		void, FieldImpl, ActorInitialize,
+		FIELD_IMPL_ACTOR_INITIALIZE,
+		int, setupMode
+	) {
+		C_CALL_ORIG(setupMode);
+		// The original routine writes the map-entry cursor into the actor
+		// record.  Restore only afterwards, and only if it initialized player.
+		ctext::mod_menu::RestoreFieldPositionAfterActorInitialize(this);
 	}
 
 	FN_HOOK_A(
@@ -85,6 +95,7 @@ export namespace ctext::hooks {
 		// input; UserScrollDiagonal retains the existing diagonal fix.
 		ENABLE_C_FN_HOOK(FieldImpl, MovementUpdate);
 		ENABLE_C_FN_HOOK(FieldImpl, ActorFrameUpdate);
+		ENABLE_C_FN_HOOK(FieldImpl, ActorInitialize);
 		ENABLE_C_FN_HOOK(FieldImpl, UserScrollDiagonal);
 		ENABLE_FN_HOOK(god_mode_damage_target);
 	}

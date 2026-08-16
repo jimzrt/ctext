@@ -28,7 +28,7 @@ import ct.scene;
 namespace ctext::mod_menu {
     bool HandleFieldInput();
     void SetCurrentFieldImpl(void* fieldImpl);
-    void RestoreFieldPosition(void* fieldImpl);
+    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl);
     void ObserveFieldActorFrame(void* fieldImpl);
 }
 
@@ -333,14 +333,19 @@ namespace {
         currentFieldImpl = fieldImpl;
     }
 
-    void RestoreFieldPosition(void* fieldImpl) {
+    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl) {
         if (!restorePositionPending || !fieldImpl) return;
         auto* state = *reinterpret_cast<std::uint8_t**>(
             static_cast<std::uint8_t*>(fieldImpl) + 0x850);
         auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
         if (!state || !canvas) return;
         const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
+        // The initializer can run for every field actor.  Its selected actor
+        // is at +0x1180; wait for the player's record rather than restoring
+        // into an unrelated NPC during FieldScene construction.
+        const auto selected = *reinterpret_cast<std::int32_t*>(state + 0x1180);
         if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
+        if (selected != active) return;
         auto* record = canvas + 0x6940 + (active / 2) * 0x154;
 
         // Do not write the position fields ourselves.  Queue exactly one
@@ -365,7 +370,7 @@ namespace {
         *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
         restorePositionPending = false;
-        QuickLoadLog("restored actor native current=" +
+        QuickLoadLog("restored actor after native initializer current=" +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x90)) +
                      " target=" + std::to_string(targetX) + "," + std::to_string(targetY) +
@@ -969,8 +974,8 @@ export namespace ctext::mod_menu {
         ::SetCurrentFieldImpl(fieldImpl);
     }
 
-    void RestoreFieldPosition(void* fieldImpl) {
-        ::RestoreFieldPosition(fieldImpl);
+    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl) {
+        ::RestoreFieldPositionAfterActorInitialize(fieldImpl);
     }
 
     void ObserveFieldActorFrame(void* fieldImpl) {
