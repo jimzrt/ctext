@@ -107,6 +107,14 @@ namespace {
                      std::to_string(reinterpret_cast<std::uintptr_t>(fieldMap)));
         int count = 0;
         LogFieldMapNodes(fieldMap, 0, count);
+        if (auto* director = cocos2d::Director::getInstance()) {
+            if (auto* scene = director->getRunningScene()) {
+                QuickLoadLog("running scene node=" +
+                             std::to_string(reinterpret_cast<std::uintptr_t>(scene)));
+                count = 0;
+                LogFieldMapNodes(scene, 0, count);
+            }
+        }
     }
 
     void QuickLoadLog(const std::string& message) {
