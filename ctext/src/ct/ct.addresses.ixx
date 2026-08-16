@@ -24,8 +24,6 @@ export namespace ct::addr {
 	// FieldScene setup routine that initializes an actor record from the
 	// bookmark/map-entry cursor.  It is the proven writer of +0x84/+0x90.
 	P FIELD_IMPL_ACTOR_INITIALIZE = 0x16A7D0;
-	// Resynchronizes field movement/camera state from the active actor record.
-	P FIELD_IMPL_RESYNC_ACTIVE_ACTOR = 0x176780;
 	// Applies one pending movement step to a field actor record and updates its
 	// authoritative coordinate fields and their byte-split mirrors.
 	P FIELD_ACTOR_APPLY_MOTION = 0x17AC20;
