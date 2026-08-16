@@ -157,8 +157,12 @@ namespace {
     }
 
     void QuickLoadLog(const std::string& message) {
-        std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
-                          std::ios::app);
+        wchar_t executablePath[MAX_PATH]{};
+        const auto length = GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
+        const auto logPath = length != 0
+            ? std::filesystem::path(executablePath).parent_path() / "ctext_quickload.log"
+            : std::filesystem::current_path() / "ctext_quickload.log";
+        std::ofstream log(logPath, std::ios::app);
         if (log) log << message << '\n';
     }
     std::string notificationText;
@@ -189,8 +193,15 @@ namespace {
                 // +0x98/+0xa4 are per-frame input deltas and are normally zero
                 // at rest. +0x150/+0x154 are the live actor coordinates used
                 // by the field collision/encounter code.
-                savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x150);
-                savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0x154);
+                const auto active = *reinterpret_cast<std::int32_t*>(fieldState + 0x11ec);
+                if (active >= 0 && active < 0x80 && (active & 1) == 0) {
+                    auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+                    savedFieldX = *reinterpret_cast<std::int32_t*>(record + 0x84);
+                    savedFieldY = *reinterpret_cast<std::int32_t*>(record + 0x90);
+                } else {
+                    savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x150);
+                    savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0x154);
+                }
                 savedFieldPositionValid = true;
                 LOG_DEBUG("[ctext] quick actor position captured: " << savedFieldX << ", " << savedFieldY);
                 QuickLoadLog("captured actor " + std::to_string(savedFieldX) + "," +
@@ -256,10 +267,7 @@ namespace {
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0) = savedResumeY;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
-            // Do not write an unverified candidate transform. The native
-            // bookmark remains authoritative until the actor coordinate is
-            // identified from the audit above.
-            restorePositionPending = false;
+            restorePositionPending = true;
             QuickLoadLog("applied resume " + std::to_string(savedResumeX) + "," +
                          std::to_string(savedResumeY) + "," +
                          std::to_string(savedResumeDirection));
@@ -287,16 +295,40 @@ namespace {
         if (!restorePositionPending || !fieldImpl) return;
         auto* movement = *reinterpret_cast<std::uint8_t**>(
             static_cast<std::uint8_t*>(fieldImpl) + 0x854);
-        if (!movement) return;
-        *reinterpret_cast<std::int32_t*>(movement + 0x148) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(movement + 0x14c) = savedFieldY;
+        auto* state = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
+        auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
+        if (!movement || !state || !canvas) return;
+        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
+        if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
+        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+        // The record is the authoritative field-actor transform. Native
+        // movement advances +0x84/+0x90 and mirrors their bytes into
+        // +0x7c/+0x80 and +0x88/+0x8c respectively.
+        *reinterpret_cast<std::int32_t*>(record + 0x84) = savedFieldX;
+        *reinterpret_cast<std::int32_t*>(record + 0x90) = savedFieldY;
+        *reinterpret_cast<std::int32_t*>(record + 0x7c) = savedFieldX & 0xff;
+        *reinterpret_cast<std::int32_t*>(record + 0x80) = savedFieldX >> 8;
+        *reinterpret_cast<std::int32_t*>(record + 0x88) = savedFieldY & 0xff;
+        *reinterpret_cast<std::int32_t*>(record + 0x8c) = savedFieldY >> 8;
+        *reinterpret_cast<std::int32_t*>(record + 0x94) = 0;
+        *reinterpret_cast<std::int32_t*>(record + 0xa4) = 0;
+        *reinterpret_cast<std::int32_t*>(record + 0xac) = 0;
+        *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
+        const auto anchorX = savedFieldX - 0x20;
+        const auto anchorY = savedFieldY + 0x20;
+        *reinterpret_cast<std::int32_t*>(movement + 0x148) = anchorX;
+        *reinterpret_cast<std::int32_t*>(movement + 0x14c) = anchorY;
         *reinterpret_cast<std::int32_t*>(movement + 0x150) = savedFieldX;
         *reinterpret_cast<std::int32_t*>(movement + 0x154) = savedFieldY;
         *reinterpret_cast<std::int32_t*>(movement + 0x98) = 0;
         *reinterpret_cast<std::int32_t*>(movement + 0xa4) = 0;
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133c4) = anchorX;
+        *reinterpret_cast<std::int32_t*>(canvas + 0x133c8) = anchorY;
         restorePositionPending = false;
-        QuickLoadLog("restored actor " + std::to_string(savedFieldX) + "," +
-                     std::to_string(savedFieldY));
+        QuickLoadLog("restored actor record=" + std::to_string(savedFieldX) + "," +
+                     std::to_string(savedFieldY) + " anchor=" +
+                     std::to_string(anchorX) + "," + std::to_string(anchorY));
     }
 
     void ProcessDeferredActions() {
