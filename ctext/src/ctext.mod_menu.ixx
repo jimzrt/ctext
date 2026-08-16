@@ -29,6 +29,7 @@ namespace ctext::mod_menu {
     bool HandleFieldInput();
     void SetCurrentFieldImpl(void* fieldImpl);
     void RestoreFieldPosition(void* fieldImpl);
+    void ObserveFieldActorFrame(void* fieldImpl);
 }
 
 namespace {
@@ -74,6 +75,9 @@ namespace {
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
     bool restorePositionPending{};
+    int movementTraceFrames{};
+    std::int32_t lastTracedActorX{INT32_MIN};
+    std::int32_t lastTracedActorY{INT32_MIN};
     void QuickLoadLog(const std::string& message);
 
     // FieldImpl's map layer owns the runtime actor nodes.  The bookmark only
@@ -178,6 +182,33 @@ namespace {
     // record's rendering coordinates.
     using FieldActorApplyMotion = void(__stdcall*)(void*);
 
+    void TraceFieldActorFrame(void* fieldImpl) {
+        if (movementTraceFrames <= 0 || !fieldImpl) return;
+        --movementTraceFrames;
+        auto* state = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
+        auto* movement = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
+        auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
+        if (!state || !movement || !canvas) return;
+        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
+        if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
+        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+        const auto x = *reinterpret_cast<std::int32_t*>(record + 0x84);
+        const auto y = *reinterpret_cast<std::int32_t*>(record + 0x90);
+        if (x == lastTracedActorX && y == lastTracedActorY) return;
+        lastTracedActorX = x;
+        lastTracedActorY = y;
+        QuickLoadLog("actor-frame pos=" + std::to_string(x) + "," +
+                     std::to_string(y) + " step=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xc8)) +
+                     " velocity=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xa4)) +
+                     "," + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xbc)) +
+                     " control=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)));
+    }
+
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
         if (!manager) return false;
@@ -210,6 +241,13 @@ namespace {
                 LOG_DEBUG("[ctext] quick actor position captured: " << savedFieldX << ", " << savedFieldY);
                 QuickLoadLog("captured actor " + std::to_string(savedFieldX) + "," +
                              std::to_string(savedFieldY));
+                // Record only changes in the real per-frame actor pass while
+                // the player moves after F5. This captures the proven native
+                // propagation chain without spamming one line per frame.
+                movementTraceFrames = 1800;
+                lastTracedActorX = INT32_MIN;
+                lastTracedActorY = INT32_MIN;
+                QuickLoadLog("actor-frame trace armed");
             }
             LogFieldRuntimeTree(currentFieldImpl);
             LogFieldCoordinateCandidates(currentFieldImpl, canvas);
@@ -933,6 +971,10 @@ export namespace ctext::mod_menu {
 
     void RestoreFieldPosition(void* fieldImpl) {
         ::RestoreFieldPosition(fieldImpl);
+    }
+
+    void ObserveFieldActorFrame(void* fieldImpl) {
+        ::TraceFieldActorFrame(fieldImpl);
     }
 
     void ProcessDeferredActions() {

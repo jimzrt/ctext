@@ -51,6 +51,14 @@ namespace {
 		ctext::mod_menu::RestoreFieldPosition(this);
 	}
 
+	C_FN_HOOK_A(
+	void, FieldImpl, ActorFrameUpdate,
+	FIELD_IMPL_ACTOR_FRAME_UPDATE
+	) {
+		C_CALL_ORIG();
+		ctext::mod_menu::ObserveFieldActorFrame(this);
+	}
+
 	FN_HOOK_A(
 		__fastcall, void, god_mode_damage_target,
 		DAMAGE_TARGET,
@@ -76,6 +84,7 @@ export namespace ctext::hooks {
 		// Both hooks are main-thread boundaries. MovementUpdate handles menu
 		// input; UserScrollDiagonal retains the existing diagonal fix.
 		ENABLE_C_FN_HOOK(FieldImpl, MovementUpdate);
+		ENABLE_C_FN_HOOK(FieldImpl, ActorFrameUpdate);
 		ENABLE_C_FN_HOOK(FieldImpl, UserScrollDiagonal);
 		ENABLE_FN_HOOK(god_mode_damage_target);
 	}
