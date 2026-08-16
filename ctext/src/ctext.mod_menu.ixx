@@ -3,6 +3,7 @@ module;
 #include <cocos/2d/CCDrawNode.h>
 #include <cocos/2d/CCLabel.h>
 #include <cocos/2d/CCLayer.h>
+#include <cocos/2d/CCNode.h>
 #include <cocos/base/CCDirector.h>
 #include <cocos/base/CCScheduler.h>
 #include <cocos/ui/UICheckBox.h>
@@ -72,6 +73,38 @@ namespace {
     std::uint32_t savedResumeX{};
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
+    void QuickLoadLog(const std::string& message);
+
+    // FieldImpl's map layer owns the runtime actor nodes.  The bookmark only
+    // stores an 8-bit tile anchor, so inspect this tree while saving to locate
+    // the player transform that must be restored for sub-tile quick loads.
+    void LogFieldMapNodes(cocos2d::Node* node, int depth, int& count) {
+        if (!node || depth > 3 || count >= 80) return;
+        const auto p = node->getPosition();
+        const auto size = node->getContentSize();
+        QuickLoadLog("node " + std::to_string(reinterpret_cast<std::uintptr_t>(node)) +
+                     " d=" + std::to_string(depth) +
+                     " p=" + std::to_string(p.x) + "," + std::to_string(p.y) +
+                     " size=" + std::to_string(size.width) + "," +
+                     std::to_string(size.height) +
+                     " children=" + std::to_string(node->getChildrenCount()));
+        ++count;
+        for (auto* child : node->getChildren()) LogFieldMapNodes(child, depth + 1, count);
+    }
+
+    void LogFieldRuntimeTree(void* fieldImpl) {
+        if (!fieldImpl) return;
+        auto* bytes = static_cast<std::uint8_t*>(fieldImpl);
+        auto* fieldMap = *reinterpret_cast<cocos2d::Node**>(bytes + 0xb9c);
+        if (!fieldMap) {
+            QuickLoadLog("field map node=null");
+            return;
+        }
+        QuickLoadLog("field map node=" +
+                     std::to_string(reinterpret_cast<std::uintptr_t>(fieldMap)));
+        int count = 0;
+        LogFieldMapNodes(fieldMap, 0, count);
+    }
 
     void QuickLoadLog(const std::string& message) {
         std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
@@ -110,6 +143,7 @@ namespace {
                 QuickLoadLog("captured " + std::to_string(savedFieldX) + "," +
                              std::to_string(savedFieldY));
             }
+            LogFieldRuntimeTree(currentFieldImpl);
         }
         auto* liveState = reinterpret_cast<std::uint8_t*>(manager) + ct::addr::SAVE_STATE_OFFSET;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
