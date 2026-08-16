@@ -185,6 +185,29 @@ namespace {
     // authoritative coordinates and refreshes the field controller/camera.
     using FieldImplResyncActiveActor = void(__thiscall*)(void*);
 
+    void LogFieldCameraState(const char* stage, void* fieldImpl, std::uint8_t* canvas) {
+        if (!fieldImpl || !canvas) return;
+        auto* movement = *reinterpret_cast<std::uint8_t**>(
+            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
+        if (!movement) return;
+        QuickLoadLog(std::string("camera ") + stage +
+                     " movement=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x148)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x14c)) +
+                     " control=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)) +
+                     " scroll=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x1331c)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x13328)) +
+                     " viewport=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c4)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c8)) +
+                     " resolved=" +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133cc)) + "," +
+                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133d0)));
+    }
+
     void TraceFieldActorFrame(void* fieldImpl) {
         if (movementTraceFrames <= 0 || !fieldImpl) return;
         --movementTraceFrames;
@@ -376,8 +399,10 @@ namespace {
         // The actor record is now exact, but FieldScene constructed its
         // controller/camera from the map-entry cursor.  Use the native
         // resync layer rather than deriving a camera translation ourselves.
+        LogFieldCameraState("before-resync", fieldImpl, canvas);
         ADDR_AS(FieldImplResyncActiveActor,
                 ct::addr::FIELD_IMPL_RESYNC_ACTIVE_ACTOR)(fieldImpl);
+        LogFieldCameraState("after-resync", fieldImpl, canvas);
         restorePositionPending = false;
         QuickLoadLog("restored actor after native initializer current=" +
                      std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
