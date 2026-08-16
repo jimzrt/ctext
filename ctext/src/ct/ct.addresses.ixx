@@ -18,6 +18,9 @@ export namespace ct::addr {
 	P FIELD_IMPL_USER_SCROLL_DIAGONAL = 0x175DA0;
 	// Field input dispatcher; this runs for cardinal and diagonal movement.
 	P FIELD_IMPL_MOVEMENT_UPDATE = 0x175A40;
+	// Applies one pending movement step to a field actor record and updates its
+	// authoritative coordinate fields and their byte-split mirrors.
+	P FIELD_ACTOR_APPLY_MOTION = 0x17AC20;
 	// Final damage helper used by the proven chrono_modloader god-mode patch.
 	P DAMAGE_TARGET = 0x8F980;
 

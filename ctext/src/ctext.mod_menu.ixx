@@ -173,6 +173,10 @@ namespace {
     using SaveStateCopy = void(__thiscall*)(void*, void*);
     using SaveStateFile = int(__fastcall*)(int, void*);
     using SaveStateSync = void(__thiscall*)(void*);
+    // chrono.exe 0x57AC20 (RVA 0x17AC20): stdcall actor-record update.
+    // It applies the pending x/y motion and mirrors the result into the
+    // record's rendering coordinates.
+    using FieldActorApplyMotion = void(__stdcall*)(void*);
 
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
@@ -293,42 +297,41 @@ namespace {
 
     void RestoreFieldPosition(void* fieldImpl) {
         if (!restorePositionPending || !fieldImpl) return;
-        auto* movement = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
         auto* state = *reinterpret_cast<std::uint8_t**>(
             static_cast<std::uint8_t*>(fieldImpl) + 0x850);
         auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
-        if (!movement || !state || !canvas) return;
+        if (!state || !canvas) return;
         const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
         if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
         auto* record = canvas + 0x6940 + (active / 2) * 0x154;
-        // The record is the authoritative field-actor transform. Native
-        // movement advances +0x84/+0x90 and mirrors their bytes into
-        // +0x7c/+0x80 and +0x88/+0x8c respectively.
-        *reinterpret_cast<std::int32_t*>(record + 0x84) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(record + 0x90) = savedFieldY;
-        *reinterpret_cast<std::int32_t*>(record + 0x7c) = savedFieldX & 0xff;
-        *reinterpret_cast<std::int32_t*>(record + 0x80) = savedFieldX >> 8;
-        *reinterpret_cast<std::int32_t*>(record + 0x88) = savedFieldY & 0xff;
-        *reinterpret_cast<std::int32_t*>(record + 0x8c) = savedFieldY >> 8;
-        *reinterpret_cast<std::int32_t*>(record + 0x94) = 0;
+
+        // Do not write the position fields ourselves.  Queue exactly one
+        // native actor-motion step: this is the same routine field movement
+        // uses to update the transform and all of its dependent coordinates.
+        const auto currentX = static_cast<std::uint16_t>(
+            *reinterpret_cast<std::uint32_t*>(record + 0x84));
+        const auto currentY = static_cast<std::uint16_t>(
+            *reinterpret_cast<std::uint32_t*>(record + 0x90));
+        const auto targetX = static_cast<std::uint16_t>(savedFieldX);
+        const auto targetY = static_cast<std::uint16_t>(savedFieldY);
+        const auto deltaX = static_cast<std::int16_t>(targetX - currentX);
+        const auto deltaY = static_cast<std::int16_t>(targetY - currentY);
+        *reinterpret_cast<std::int32_t*>(record + 0xa4) = deltaX;
+        *reinterpret_cast<std::int32_t*>(record + 0xbc) = deltaY;
+        *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
+        *reinterpret_cast<std::int32_t*>(record + 0xc8) = 1;
+        ADDR_AS(FieldActorApplyMotion, ct::addr::FIELD_ACTOR_APPLY_MOTION)(record);
+        // The step is complete. Do not leave a velocity behind for a later
+        // native movement operation to consume.
         *reinterpret_cast<std::int32_t*>(record + 0xa4) = 0;
-        *reinterpret_cast<std::int32_t*>(record + 0xac) = 0;
         *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
-        const auto anchorX = savedFieldX - 0x20;
-        const auto anchorY = savedFieldY + 0x20;
-        *reinterpret_cast<std::int32_t*>(movement + 0x148) = anchorX;
-        *reinterpret_cast<std::int32_t*>(movement + 0x14c) = anchorY;
-        *reinterpret_cast<std::int32_t*>(movement + 0x150) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(movement + 0x154) = savedFieldY;
-        *reinterpret_cast<std::int32_t*>(movement + 0x98) = 0;
-        *reinterpret_cast<std::int32_t*>(movement + 0xa4) = 0;
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133c4) = anchorX;
-        *reinterpret_cast<std::int32_t*>(canvas + 0x133c8) = anchorY;
+        *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
         restorePositionPending = false;
-        QuickLoadLog("restored actor record=" + std::to_string(savedFieldX) + "," +
-                     std::to_string(savedFieldY) + " anchor=" +
-                     std::to_string(anchorX) + "," + std::to_string(anchorY));
+        QuickLoadLog("restored actor native current=" +
+                     std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
+                     std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x90)) +
+                     " target=" + std::to_string(targetX) + "," + std::to_string(targetY) +
+                     " delta=" + std::to_string(deltaX) + "," + std::to_string(deltaY));
     }
 
     void ProcessDeferredActions() {
