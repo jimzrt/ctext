@@ -79,7 +79,7 @@ namespace {
     // stores an 8-bit tile anchor, so inspect this tree while saving to locate
     // the player transform that must be restored for sub-tile quick loads.
     void LogFieldMapNodes(cocos2d::Node* node, int depth, int& count) {
-        if (!node || depth > 3 || count >= 80) return;
+        if (!node || depth > 7 || count >= 400) return;
         const auto p = node->getPosition();
         const auto size = node->getContentSize();
         QuickLoadLog("node " + std::to_string(reinterpret_cast<std::uintptr_t>(node)) +
@@ -87,6 +87,9 @@ namespace {
                      " p=" + std::to_string(p.x) + "," + std::to_string(p.y) +
                      " size=" + std::to_string(size.width) + "," +
                      std::to_string(size.height) +
+                     " tag=" + std::to_string(node->getTag()) +
+                     " z=" + std::to_string(node->getLocalZOrder()) +
+                     " name=" + node->getName() +
                      " children=" + std::to_string(node->getChildrenCount()));
         ++count;
         for (auto* child : node->getChildren()) LogFieldMapNodes(child, depth + 1, count);
