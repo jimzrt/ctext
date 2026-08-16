@@ -65,12 +65,13 @@ namespace {
     bool quickLoadPending{};
     void* currentFieldImpl{};
     bool savedFieldPositionValid{};
-    bool restoreFieldPositionPending{};
-    unsigned restoreFieldPositionFrames{};
     std::int32_t savedFieldX{};
     std::int32_t savedFieldY{};
     std::int32_t savedFieldTileX{};
     std::int32_t savedFieldTileY{};
+    std::uint32_t savedResumeX{};
+    std::uint32_t savedResumeY{};
+    std::uint32_t savedResumeDirection{};
 
     void QuickLoadLog(const std::string& message) {
         std::ofstream log(std::filesystem::current_path() / "ctext_quickload.log",
@@ -89,6 +90,7 @@ namespace {
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
         if (!manager) return false;
+        auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
         if (currentFieldImpl) {
             auto* movement = *reinterpret_cast<std::uint8_t**>(
                 static_cast<std::uint8_t*>(currentFieldImpl) + 0x854);
@@ -117,7 +119,16 @@ namespace {
         // The native save path refreshes the serialized field/bookmark
         // cursor before copying the live state. Without this, map changes
         // are saved but the last synchronized field position is retained.
-        sync(reinterpret_cast<std::uint8_t*>(manager) + 0x68dc);
+        sync(canvas + 0x68dc);
+        // These are the exact bookmark-resume values consumed by FieldScene
+        // while it constructs the player. Keep an explicit copy because the
+        // serialized state does not appear to refresh them on this build.
+        savedResumeX = *reinterpret_cast<std::uint32_t*>(canvas + 0x1099c);
+        savedResumeY = *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0);
+        savedResumeDirection = *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4);
+        QuickLoadLog("captured resume " + std::to_string(savedResumeX) + "," +
+                     std::to_string(savedResumeY) + "," +
+                     std::to_string(savedResumeDirection));
         init(quickState.data());
         toBuffer(liveState, quickState.data());
         // The native routine returns zero on a successful write.
@@ -152,6 +163,16 @@ namespace {
         // and coordinates, which ordinary save-point loading does not need.
         applyFlow(quickState.data(), 3);
 
+        if (savedFieldPositionValid) {
+            *reinterpret_cast<std::uint32_t*>(canvas + 0x1099c) = savedResumeX;
+            *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0) = savedResumeY;
+            *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
+            *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
+            QuickLoadLog("applied resume " + std::to_string(savedResumeX) + "," +
+                         std::to_string(savedResumeY) + "," +
+                         std::to_string(savedResumeDirection));
+        }
+
         // Applying the serialized state only updates ChronoCanvas.  Native
         // bookmark loading then leaves the save/load scene and constructs a
         // fresh FieldScene; that constructor consumes the bookmark resume
@@ -162,8 +183,6 @@ namespace {
         if (!director) return false;
         auto* fieldScene = ct::scene::SceneManager::create(0x11, 0);
         if (!fieldScene) return false;
-        restoreFieldPositionPending = savedFieldPositionValid;
-        restoreFieldPositionFrames = restoreFieldPositionPending ? 120u : 0u;
         director->replaceScene(fieldScene);
         return true;
     }
@@ -173,28 +192,7 @@ namespace {
     }
 
     void RestoreFieldPosition(void* fieldImpl) {
-        if (!restoreFieldPositionPending || !fieldImpl) return;
-        auto* movement = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
-        auto* fieldState = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
-        if (fieldState && savedFieldPositionValid) {
-            *reinterpret_cast<std::int32_t*>(fieldState + 0x1014) = savedFieldTileX;
-            *reinterpret_cast<std::int32_t*>(fieldState + 0x1018) = savedFieldTileY;
-        }
-        if (!movement) return;
-        *reinterpret_cast<std::int32_t*>(movement + 0x98) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(movement + 0xa4) = savedFieldY;
-        *reinterpret_cast<std::int32_t*>(movement + 0xa0) = savedFieldX;
-        *reinterpret_cast<std::int32_t*>(movement + 0xac) = savedFieldY;
-        *reinterpret_cast<std::int32_t*>(movement + 0x90) = 0;
-        *reinterpret_cast<std::int32_t*>(movement + 0x94) = 0;
-        if (restoreFieldPositionFrames > 0) --restoreFieldPositionFrames;
-        if (restoreFieldPositionFrames == 0) restoreFieldPositionPending = false;
-        LOG_DEBUG("[ctext] quick position restored: " << savedFieldX << ", " << savedFieldY);
-        QuickLoadLog("restored " + std::to_string(savedFieldX) + "," +
-                     std::to_string(savedFieldY) + " remaining=" +
-                     std::to_string(restoreFieldPositionFrames));
+        (void)fieldImpl;
     }
 
     void ProcessDeferredActions() {
