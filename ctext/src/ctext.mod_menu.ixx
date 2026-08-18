@@ -255,6 +255,7 @@ namespace {
             fieldImpl);
         cameraSyncPending = false;
 
+    }
     void ProcessDeferredActions() {
         if (!quickLoadPending) return;
         quickLoadPending = false;
