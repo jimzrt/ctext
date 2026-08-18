@@ -47,6 +47,7 @@ namespace {
 		C_CALL_ORIG();
 	}
 
+	struct NativeResumeScene {};
 	C_FN_HOOK_A(
 		void, NativeResumeScene, Resume,
 		SAVE_LOAD_RESUME,
@@ -58,7 +59,7 @@ namespace {
 				<< "this=" << reinterpret_cast<std::uintptr_t>(this)
 				<< " context=" << reinterpret_cast<std::uintptr_t>(context)
 				<< " slot=" << *reinterpret_cast<std::uint32_t*>(
-					static_cast<std::uint8_t*>(this) + 4)
+					reinterpret_cast<std::uint8_t*>(this) + 4)
 				<< '\n';
 		}
 		C_CALL_ORIG(context);
