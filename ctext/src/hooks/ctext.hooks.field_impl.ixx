@@ -51,22 +51,12 @@ namespace {
 	}
 
 	C_FN_HOOK_A(
-	void, FieldImpl, ActorFrameUpdate,
-	FIELD_IMPL_ACTOR_FRAME_UPDATE
-	) {
-		C_CALL_ORIG();
-		ctext::mod_menu::ObserveFieldActorFrame(this);
-	}
-
-	C_FN_HOOK_A(
 		void, FieldImpl, ActorInitialize,
 		FIELD_IMPL_ACTOR_INITIALIZE,
 		int, setupMode
 	) {
 		C_CALL_ORIG(setupMode);
-		// The original routine writes the map-entry cursor into the actor
-		// record.  Restore only afterwards, and only if it initialized player.
-		ctext::mod_menu::RestoreFieldPositionAfterActorInitialize(this);
+		ctext::mod_menu::SyncFieldPositionAfterActorInitialize(this);
 	}
 
 	FN_HOOK_A(
@@ -91,10 +81,9 @@ namespace {
 
 export namespace ctext::hooks {
 	void EnableFieldImplHooks() {
-		// Both hooks are main-thread boundaries. MovementUpdate handles menu
-		// input; UserScrollDiagonal retains the existing diagonal fix.
+		// MovementUpdate handles menu input and field-position capture;
+		// ActorInitialize performs the post-load camera synchronization.
 		ENABLE_C_FN_HOOK(FieldImpl, MovementUpdate);
-		ENABLE_C_FN_HOOK(FieldImpl, ActorFrameUpdate);
 		ENABLE_C_FN_HOOK(FieldImpl, ActorInitialize);
 		ENABLE_C_FN_HOOK(FieldImpl, UserScrollDiagonal);
 		ENABLE_FN_HOOK(god_mode_damage_target);

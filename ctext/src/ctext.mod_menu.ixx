@@ -15,7 +15,6 @@ module;
 #include <algorithm>
 #include <array>
 #include <filesystem>
-#include <fstream>
 
 export module ctext.mod_menu;
 
@@ -28,8 +27,7 @@ import ct.scene;
 namespace ctext::mod_menu {
     bool HandleFieldInput();
     void SetCurrentFieldImpl(void* fieldImpl);
-    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl);
-    void ObserveFieldActorFrame(void* fieldImpl);
+    void SyncFieldPositionAfterActorInitialize(void* fieldImpl);
 }
 
 namespace {
@@ -69,107 +67,63 @@ namespace {
     bool savedFieldPositionValid{};
     std::int32_t savedFieldX{};
     std::int32_t savedFieldY{};
-    std::int32_t savedFieldTileX{};
-    std::int32_t savedFieldTileY{};
     std::uint32_t savedResumeX{};
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
     bool restorePositionPending{};
-    bool cameraSyncPending{};
-    int movementTraceFrames{};
-    std::int32_t lastTracedActorX{INT32_MIN};
-    std::int32_t lastTracedActorY{INT32_MIN};
-    void QuickLoadLog(const std::string& message);
 
-    // FieldImpl's map layer owns the runtime actor nodes.  The bookmark only
-    // stores an 8-bit tile anchor, so inspect this tree while saving to locate
-    // the player transform that must be restored for sub-tile quick loads.
-    void LogFieldMapNodes(cocos2d::Node* node, int depth, int& count) {
-        if (!node || depth > 7 || count >= 400) return;
-        const auto p = node->getPosition();
-        const auto size = node->getContentSize();
-        QuickLoadLog("node " + std::to_string(reinterpret_cast<std::uintptr_t>(node)) +
-                     " d=" + std::to_string(depth) +
-                     " p=" + std::to_string(p.x) + "," + std::to_string(p.y) +
-                     " size=" + std::to_string(size.width) + "," +
-                     std::to_string(size.height) +
-                     " tag=" + std::to_string(node->getTag()) +
-                     " z=" + std::to_string(node->getLocalZOrder()) +
-                     " name=" + node->getName() +
-                     " children=" + std::to_string(node->getChildrenCount()));
-        ++count;
-        for (auto* child : node->getChildren()) LogFieldMapNodes(child, depth + 1, count);
+    bool IsReadable(const void* address, std::size_t size) {
+        if (!address || size == 0) return false;
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(address, &info, sizeof(info)) != sizeof(info) ||
+            info.State != MEM_COMMIT ||
+            (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0)
+            return false;
+
+        const auto start = reinterpret_cast<std::uintptr_t>(address);
+        const auto base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);
+        if (start < base) return false;
+        const auto offset = start - base;
+        return offset <= info.RegionSize && size <= info.RegionSize - offset;
     }
 
-    void LogFieldRuntimeTree(void* fieldImpl) {
-        if (!fieldImpl) return;
-        auto* bytes = static_cast<std::uint8_t*>(fieldImpl);
+    bool CaptureFieldPosition(std::uint8_t* canvas) {
+        savedFieldPositionValid = false;
+        if (!canvas || !currentFieldImpl ||
+            !IsReadable(currentFieldImpl, 0xba0))
+            return false;
+
+        auto* bytes = static_cast<std::uint8_t*>(currentFieldImpl);
         auto* fieldMap = *reinterpret_cast<cocos2d::Node**>(bytes + 0xb9c);
-        if (!fieldMap) {
-            QuickLoadLog("field map node=null");
-            return;
-        }
-        QuickLoadLog("field map node=" +
-                     std::to_string(reinterpret_cast<std::uintptr_t>(fieldMap)));
-        int count = 0;
-        LogFieldMapNodes(fieldMap, 0, count);
-        if (auto* director = cocos2d::Director::getInstance()) {
-            if (auto* scene = director->getRunningScene()) {
-                QuickLoadLog("running scene node=" +
-                             std::to_string(reinterpret_cast<std::uintptr_t>(scene)));
-                count = 0;
-                LogFieldMapNodes(scene, 0, count);
-            }
-        }
-    }
+        if (!fieldMap || !IsReadable(fieldMap, sizeof(void*)))
+            return false;
 
-    void LogFieldCoordinateCandidates(void* fieldImpl, std::uint8_t* canvas) {
-        if (!fieldImpl || !canvas) return;
-        auto* bytes = static_cast<std::uint8_t*>(fieldImpl);
-        auto* state = *reinterpret_cast<std::uint8_t**>(bytes + 0x850);
+        auto* fieldState = *reinterpret_cast<std::uint8_t**>(bytes + 0x850);
         auto* movement = *reinterpret_cast<std::uint8_t**>(bytes + 0x854);
-        if (!state || !movement) return;
-        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
-        QuickLoadLog("coord state active=" + std::to_string(active) +
-                     " map=" + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1010)) +
-                     " tile=" + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1014)) +
-                     "," + std::to_string(*reinterpret_cast<std::int32_t*>(state + 0x1018)));
-        QuickLoadLog("coord movement d=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x98)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0xa4)) +
-                     " anchor=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x148)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x14c)) +
-                     " target=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)) +
-                     " bounds=" + std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x38)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x40)));
-        if (active >= 0 && active < 0x80 && (active & 1) == 0) {
-            auto* record = canvas + 0x6940 + (active / 2) * 0x154;
-            QuickLoadLog("coord record=" + std::to_string(reinterpret_cast<std::uintptr_t>(record)) +
-                         " p84=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x84)) +
-                         " p90=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x90)) +
-                         " p94=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x94)) +
-                         " p98=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x98)) +
-                         " p9c=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x9c)) +
-                         " p148=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x148)) +
-                         " p14c=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0x14c)));
-        }
-        QuickLoadLog("coord manager d=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x1331c)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x13328)) +
-                     " pos=" + std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c4)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c8)));
+        if (!fieldState || !movement ||
+            !IsReadable(fieldState, 0x11f0) ||
+            !IsReadable(movement, 0x158))
+            return false;
+
+        const auto active = *reinterpret_cast<std::int32_t*>(fieldState + 0x11ec);
+        if (active < 0 || active >= 0x80 || (active & 1) != 0)
+            return false;
+
+        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+        if (!IsReadable(record, 0x154))
+            return false;
+
+        const auto x = *reinterpret_cast<std::int32_t*>(record + 0x84);
+        const auto y = *reinterpret_cast<std::int32_t*>(record + 0x90);
+        if (x < 0 || x > 0xffff || y < 0 || y > 0xffff)
+            return false;
+
+        savedFieldX = x;
+        savedFieldY = y;
+        savedFieldPositionValid = true;
+        return true;
     }
 
-    void QuickLoadLog(const std::string& message) {
-        wchar_t executablePath[MAX_PATH]{};
-        const auto length = GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
-        const auto logPath = length != 0
-            ? std::filesystem::path(executablePath).parent_path() / "ctext_quickload.log"
-            : std::filesystem::current_path() / "ctext_quickload.log";
-        std::ofstream log(logPath, std::ios::app);
-        if (log) log << message << '\n';
-    }
     std::string notificationText;
     int notificationFrames{};
     void QueueNotification(const std::string& text);
@@ -178,118 +132,39 @@ namespace {
     using SaveStateCopy = void(__thiscall*)(void*, void*);
     using SaveStateFile = int(__fastcall*)(int, void*);
     using SaveStateSync = void(__thiscall*)(void*);
-    // chrono.exe 0x57AC20 (RVA 0x17AC20): stdcall actor-record update.
-    // It applies the pending x/y motion and mirrors the result into the
-    // record's rendering coordinates.
-    using FieldActorApplyMotion = void(__stdcall*)(void*);
     using FieldImplSyncPosition = void(__fastcall*)(void*);
-
-    void TraceFieldActorFrame(void* fieldImpl) {
-        if (movementTraceFrames <= 0 || !fieldImpl) return;
-        --movementTraceFrames;
-        auto* state = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
-        auto* movement = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x854);
-        auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
-        if (!state || !movement || !canvas) return;
-        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
-        if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
-        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
-        const auto x = *reinterpret_cast<std::int32_t*>(record + 0x84);
-        const auto y = *reinterpret_cast<std::int32_t*>(record + 0x90);
-        if (x == lastTracedActorX && y == lastTracedActorY) return;
-        lastTracedActorX = x;
-        lastTracedActorY = y;
-        QuickLoadLog("actor-frame pos=" + std::to_string(x) + "," +
-                     std::to_string(y) + " step=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xc8)) +
-                     " velocity=" + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xa4)) +
-                     "," + std::to_string(*reinterpret_cast<std::int32_t*>(record + 0xbc)) +
-                     " control=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x150)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(movement + 0x154)) +
-                     " viewport=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c4)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133c8)) +
-                     " resolved=" +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133cc)) + "," +
-                     std::to_string(*reinterpret_cast<std::int32_t*>(canvas + 0x133d0)));
-    }
 
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
         if (!manager) return false;
+
         auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
-        if (currentFieldImpl) {
-            auto* movement = *reinterpret_cast<std::uint8_t**>(
-                static_cast<std::uint8_t*>(currentFieldImpl) + 0x854);
-            auto* fieldState = *reinterpret_cast<std::uint8_t**>(
-                static_cast<std::uint8_t*>(currentFieldImpl) + 0x850);
-            if (fieldState) {
-                savedFieldTileX = *reinterpret_cast<std::int32_t*>(fieldState + 0x1014);
-                savedFieldTileY = *reinterpret_cast<std::int32_t*>(fieldState + 0x1018);
-                QuickLoadLog("captured tile " + std::to_string(savedFieldTileX) + "," +
-                             std::to_string(savedFieldTileY));
-            }
-            if (movement) {
-                // +0x98/+0xa4 are per-frame input deltas and are normally zero
-                // at rest. +0x150/+0x154 are the live actor coordinates used
-                // by the field collision/encounter code.
-                const auto active = *reinterpret_cast<std::int32_t*>(fieldState + 0x11ec);
-                if (active >= 0 && active < 0x80 && (active & 1) == 0) {
-                    auto* record = canvas + 0x6940 + (active / 2) * 0x154;
-                    savedFieldX = *reinterpret_cast<std::int32_t*>(record + 0x84);
-                    savedFieldY = *reinterpret_cast<std::int32_t*>(record + 0x90);
-                } else {
-                    savedFieldX = *reinterpret_cast<std::int32_t*>(movement + 0x150);
-                    savedFieldY = *reinterpret_cast<std::int32_t*>(movement + 0x154);
-                }
-                savedFieldPositionValid = true;
-                LOG_DEBUG("[ctext] quick actor position captured: " << savedFieldX << ", " << savedFieldY);
-                QuickLoadLog("captured actor " + std::to_string(savedFieldX) + "," +
-                             std::to_string(savedFieldY));
-                // Record only changes in the real per-frame actor pass while
-                // the player moves after F5. This captures the proven native
-                // propagation chain without spamming one line per frame.
-                movementTraceFrames = 1800;
-                lastTracedActorX = INT32_MIN;
-                lastTracedActorY = INT32_MIN;
-                QuickLoadLog("actor-frame trace armed");
-            }
-            LogFieldRuntimeTree(currentFieldImpl);
-            LogFieldCoordinateCandidates(currentFieldImpl, canvas);
-        }
-        auto* liveState = reinterpret_cast<std::uint8_t*>(manager) + ct::addr::SAVE_STATE_OFFSET;
+        CaptureFieldPosition(canvas);
+
+        auto* liveState = canvas + ct::addr::SAVE_STATE_OFFSET;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto toBuffer = ADDR_AS(SaveStateCopy, ct::addr::SAVE_STATE_TO_BUFFER);
         auto write = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_WRITE);
         auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
-        // The native save path refreshes the serialized field/bookmark
-        // cursor before copying the live state. Without this, map changes
-        // are saved but the last synchronized field position is retained.
+
+        // Refresh native metadata before copying the complete in-memory state.
         sync(canvas + 0x68dc);
         init(quickState.data());
         toBuffer(liveState, quickState.data());
-        // The native state stores the actor's tile-aligned base coordinates at
-        // +0x1004/+0x1008.  Normal saves copy the last bookmark cursor there,
-        // which is not the live sub-tile actor position.  Publish the live
-        // actor high bytes and let FieldImpl's native initializer combine them
-        // with the low-byte bookmark fields below.
+
         if (savedFieldPositionValid) {
+            // Native FieldImpl reconstructs the actor from these high bytes
+            // plus the low-byte bookmark values published during load.
             *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1004) =
                 static_cast<std::uint32_t>(savedFieldX) >> 8;
             *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1008) =
                 static_cast<std::uint32_t>(savedFieldY) >> 8;
             savedResumeX = static_cast<std::uint32_t>(savedFieldX);
             savedResumeY = static_cast<std::uint32_t>(savedFieldY);
-            QuickLoadLog("serialized actor base " +
-                         std::to_string(static_cast<std::uint32_t>(savedFieldX) >> 8) + "," +
-                         std::to_string(static_cast<std::uint32_t>(savedFieldY) >> 8) +
-                         " sub=" + std::to_string(static_cast<std::uint32_t>(savedFieldX) & 0xff) +
-                         "," + std::to_string(static_cast<std::uint32_t>(savedFieldY) & 0xff));
+            savedResumeDirection =
+                *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4);
         }
-        // The native routine returns zero on a successful write.
+
         return write(kQuickSlotBase + quickSlot, quickState.data()) == 0;
     }
 
@@ -327,9 +202,6 @@ namespace {
             *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
             *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
             restorePositionPending = true;
-            QuickLoadLog("applied resume " + std::to_string(savedResumeX) + "," +
-                         std::to_string(savedResumeY) + "," +
-                         std::to_string(savedResumeDirection));
         }
 
         // Applying the serialized state only updates ChronoCanvas.  Native
@@ -350,50 +222,29 @@ namespace {
         currentFieldImpl = fieldImpl;
     }
 
-    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl) {
-        if (!restorePositionPending || !fieldImpl) return;
+    void SyncFieldPositionAfterActorInitialize(void* fieldImpl) {
+        if (!restorePositionPending || !fieldImpl ||
+            !IsReadable(fieldImpl, 0x11f0))
+            return;
+
         auto* state = *reinterpret_cast<std::uint8_t**>(
             static_cast<std::uint8_t*>(fieldImpl) + 0x850);
-        auto* canvas = reinterpret_cast<std::uint8_t*>(ct::ChronoCanvas::getInstance());
-        if (!state || !canvas) return;
+        auto* canvas = reinterpret_cast<std::uint8_t*>(
+            ct::ChronoCanvas::getInstance());
+        if (!state || !canvas || !IsReadable(state, 0x1184))
+            return;
+
         const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
-        // The initializer can run for every field actor.  Its selected actor
-        // is at +0x1180; wait for the player's record rather than restoring
-        // into an unrelated NPC during FieldScene construction.
         const auto selected = *reinterpret_cast<std::int32_t*>(state + 0x1180);
-        if (active < 0 || active >= 0x80 || (active & 1) != 0) return;
-        if (selected != active) return;
-        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
+        if (active < 0 || active >= 0x80 || (active & 1) != 0 ||
+            selected != active)
+            return;
 
-        // Do not write the position fields ourselves.  Queue exactly one
-        // native actor-motion step: this is the same routine field movement
-        // uses to update the transform and all of its dependent coordinates.
-        const auto currentX = static_cast<std::uint16_t>(
-            *reinterpret_cast<std::uint32_t*>(record + 0x84));
-        const auto currentY = static_cast<std::uint16_t>(
-            *reinterpret_cast<std::uint32_t*>(record + 0x90));
-        const auto targetX = static_cast<std::uint16_t>(savedFieldX);
-        const auto targetY = static_cast<std::uint16_t>(savedFieldY);
-        const auto deltaX = static_cast<std::int16_t>(targetX - currentX);
-        const auto deltaY = static_cast<std::int16_t>(targetY - currentY);
-        *reinterpret_cast<std::int32_t*>(record + 0xa4) = deltaX;
-        *reinterpret_cast<std::int32_t*>(record + 0xbc) = deltaY;
-        *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
-        *reinterpret_cast<std::int32_t*>(record + 0xc8) = 1;
-        ADDR_AS(FieldActorApplyMotion, ct::addr::FIELD_ACTOR_APPLY_MOTION)(record);
-        // The step is complete. Do not leave a velocity behind for a later
-        // native movement operation to consume.
-        *reinterpret_cast<std::int32_t*>(record + 0xa4) = 0;
-        *reinterpret_cast<std::int32_t*>(record + 0xbc) = 0;
-        *reinterpret_cast<std::int32_t*>(record + 0xe0) = 0;
-
-        cameraSyncPending = true;
+        // Native actor construction already consumed the patched high/low
+        // coordinate fields.  Only refresh movement and camera state here.
+        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(
+            fieldImpl);
         restorePositionPending = false;
-        QuickLoadLog("restored actor after native initializer current=" +
-                     std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x84)) + "," +
-                     std::to_string(*reinterpret_cast<std::uint32_t*>(record + 0x90)) +
-                     " target=" + std::to_string(targetX) + "," + std::to_string(targetY) +
-                     " delta=" + std::to_string(deltaX) + "," + std::to_string(deltaY));
     }
 
     void ProcessDeferredActions() {
@@ -405,12 +256,6 @@ namespace {
                               : "Quick load unavailable - slot " + std::to_string(quickSlot + 1));
     }
 
-    void SyncFieldPositionAfterFrame(void* fieldImpl) {
-        if (!cameraSyncPending || !fieldImpl) return;
-        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(fieldImpl);
-        cameraSyncPending = false;
-        QuickLoadLog("native field position/camera sync completed");
-    }
 
     void QueueNotification(const std::string& text) {
         notificationText = text;
@@ -1000,13 +845,8 @@ export namespace ctext::mod_menu {
         ::SetCurrentFieldImpl(fieldImpl);
     }
 
-    void RestoreFieldPositionAfterActorInitialize(void* fieldImpl) {
-        ::RestoreFieldPositionAfterActorInitialize(fieldImpl);
-    }
-
-    void ObserveFieldActorFrame(void* fieldImpl) {
-        ::TraceFieldActorFrame(fieldImpl);
-        ::SyncFieldPositionAfterFrame(fieldImpl);
+    void SyncFieldPositionAfterActorInitialize(void* fieldImpl) {
+        ::SyncFieldPositionAfterActorInitialize(fieldImpl);
     }
 
     void ProcessDeferredActions() {
