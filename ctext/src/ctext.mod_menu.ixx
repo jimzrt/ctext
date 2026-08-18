@@ -28,6 +28,7 @@ namespace ctext::mod_menu {
     bool HandleFieldInput();
     void SetCurrentFieldImpl(void* fieldImpl);
     void SyncFieldPositionAfterActorInitialize(void* fieldImpl);
+    void ObserveFieldActorFrame(void* fieldImpl);
 }
 
 namespace {
@@ -71,6 +72,7 @@ namespace {
     std::uint32_t savedResumeY{};
     std::uint32_t savedResumeDirection{};
     bool restorePositionPending{};
+    bool cameraSyncPending{};
 
     bool IsReadable(const void* address, std::size_t size) {
         if (!address || size == 0) return false;
@@ -240,12 +242,18 @@ namespace {
             selected != active)
             return;
 
-        // Native actor construction already consumed the patched high/low
-        // coordinate fields.  Only refresh movement and camera state here.
-        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(
-            fieldImpl);
+        // Actor construction consumed the patched high/low coordinates.
+        // Defer the native movement/camera resync until the first complete
+        // actor frame, matching the native scene-construction lifecycle.
+        cameraSyncPending = true;
         restorePositionPending = false;
     }
+
+    void ObserveFieldActorFrame(void* fieldImpl) {
+        if (!cameraSyncPending || !fieldImpl) return;
+        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(
+            fieldImpl);
+        cameraSyncPending = false;
 
     void ProcessDeferredActions() {
         if (!quickLoadPending) return;
@@ -847,6 +855,9 @@ export namespace ctext::mod_menu {
 
     void SyncFieldPositionAfterActorInitialize(void* fieldImpl) {
         ::SyncFieldPositionAfterActorInitialize(fieldImpl);
+    }
+    void ObserveFieldActorFrame(void* fieldImpl) {
+        ::ObserveFieldActorFrame(fieldImpl);
     }
 
     void ProcessDeferredActions() {

@@ -51,6 +51,13 @@ namespace {
 	}
 
 	C_FN_HOOK_A(
+		void, FieldImpl, ActorFrameUpdate,
+		FIELD_IMPL_ACTOR_FRAME_UPDATE
+	) {
+		C_CALL_ORIG();
+		ctext::mod_menu::ObserveFieldActorFrame(this);
+	}
+	C_FN_HOOK_A(
 		void, FieldImpl, ActorInitialize,
 		FIELD_IMPL_ACTOR_INITIALIZE,
 		int, setupMode

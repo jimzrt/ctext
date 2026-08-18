@@ -18,6 +18,8 @@ export namespace ct::addr {
 	P FIELD_IMPL_USER_SCROLL_DIAGONAL = 0x175DA0;
 	// Field input dispatcher; this runs for cardinal and diagonal movement.
 	P FIELD_IMPL_MOVEMENT_UPDATE = 0x175A40;
+	// Per-frame actor pass used as the safe post-construction sync boundary.
+	P FIELD_IMPL_ACTOR_FRAME_UPDATE = 0x17A4D0;
 	// FieldScene setup routine that initializes an actor record from the
 	// bookmark/map-entry cursor.  It is the proven writer of +0x84/+0x90.
 	P FIELD_IMPL_ACTOR_INITIALIZE = 0x16A7D0;
