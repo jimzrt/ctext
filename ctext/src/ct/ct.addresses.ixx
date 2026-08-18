@@ -18,6 +18,8 @@ export namespace ct::addr {
 	P FIELD_IMPL_USER_SCROLL_DIAGONAL = 0x175DA0;
 	// Field input dispatcher; this runs for cardinal and diagonal movement.
 	P FIELD_IMPL_MOVEMENT_UPDATE = 0x175A40;
+	// Temporary diagnostic hook; remove after capturing native Resume context.
+	P SAVE_LOAD_RESUME = 0x215B10;
 	// Final damage helper used by the proven chrono_modloader god-mode patch.
 	P DAMAGE_TARGET = 0x8F980;
 

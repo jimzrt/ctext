@@ -2,6 +2,7 @@ module;
 
 #include "helpers.hpp"
 #include <intrin.h>
+#include <fstream>
 
 export module ctext.hooks:field_impl;
 
@@ -46,6 +47,23 @@ namespace {
 		C_CALL_ORIG();
 	}
 
+	C_FN_HOOK_A(
+		void, NativeResumeScene, Resume,
+		SAVE_LOAD_RESUME,
+		void*, context
+	) {
+		std::ofstream log("ctext_native_resume_hook.log", std::ios::app);
+		if (log) {
+			log << std::hex
+				<< "this=" << reinterpret_cast<std::uintptr_t>(this)
+				<< " context=" << reinterpret_cast<std::uintptr_t>(context)
+				<< " slot=" << *reinterpret_cast<std::uint32_t*>(
+					static_cast<std::uint8_t*>(this) + 4)
+				<< '\n';
+		}
+		C_CALL_ORIG(context);
+	}
+
 	FN_HOOK_A(
 		__fastcall, void, god_mode_damage_target,
 		DAMAGE_TARGET,
@@ -71,6 +89,7 @@ export namespace ctext::hooks {
 	void EnableFieldImplHooks() {
 		ENABLE_C_FN_HOOK(FieldImpl, MovementUpdate);
 		ENABLE_C_FN_HOOK(FieldImpl, UserScrollDiagonal);
+		ENABLE_C_FN_HOOK(NativeResumeScene, Resume);
 		ENABLE_FN_HOOK(god_mode_damage_target);
 	}
 }
