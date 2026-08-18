@@ -269,17 +269,26 @@ namespace {
         // cursor before copying the live state. Without this, map changes
         // are saved but the last synchronized field position is retained.
         sync(canvas + 0x68dc);
-        // These are the exact bookmark-resume values consumed by FieldScene
-        // while it constructs the player. Keep an explicit copy because the
-        // serialized state does not appear to refresh them on this build.
-        savedResumeX = *reinterpret_cast<std::uint32_t*>(canvas + 0x1099c);
-        savedResumeY = *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0);
-        savedResumeDirection = *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4);
-        QuickLoadLog("captured resume " + std::to_string(savedResumeX) + "," +
-                     std::to_string(savedResumeY) + "," +
-                     std::to_string(savedResumeDirection));
         init(quickState.data());
         toBuffer(liveState, quickState.data());
+        // The native state stores the actor's tile-aligned base coordinates at
+        // +0x1004/+0x1008.  Normal saves copy the last bookmark cursor there,
+        // which is not the live sub-tile actor position.  Publish the live
+        // actor high bytes and let FieldImpl's native initializer combine them
+        // with the low-byte bookmark fields below.
+        if (savedFieldPositionValid) {
+            *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1004) =
+                static_cast<std::uint32_t>(savedFieldX) >> 8;
+            *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1008) =
+                static_cast<std::uint32_t>(savedFieldY) >> 8;
+            savedResumeX = static_cast<std::uint32_t>(savedFieldX);
+            savedResumeY = static_cast<std::uint32_t>(savedFieldY);
+            QuickLoadLog("serialized actor base " +
+                         std::to_string(static_cast<std::uint32_t>(savedFieldX) >> 8) + "," +
+                         std::to_string(static_cast<std::uint32_t>(savedFieldY) >> 8) +
+                         " sub=" + std::to_string(static_cast<std::uint32_t>(savedFieldX) & 0xff) +
+                         "," + std::to_string(static_cast<std::uint32_t>(savedFieldY) & 0xff));
+        }
         // The native routine returns zero on a successful write.
         return write(kQuickSlotBase + quickSlot, quickState.data()) == 0;
     }
