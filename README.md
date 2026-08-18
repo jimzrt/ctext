@@ -13,7 +13,7 @@ CTExt is an extension framework for the PC port of Chrono Trigger. Its main goal
 * Adds modding capabilities via loose files or by loading CTP files.
 * Allows users to disable linear filtering on text and sprites to achieve a pixelated look.
 * Enables font replacement and forcing a fixed font size for all text.
-* Provides native quick saves: F5 saves the current in-memory state, F6 selects one of three quick-save slots, and F7 loads the selected slot.
+* Provides a native bookmark quick-save: F5 writes the current in-memory state to the native bookmark slot, and F7 opens the native TitleScene so Continue performs the game's normal bookmark load and transition.
 * Adds the ability to play audio during character dialogue. This feature was developed for [Echo-S CT](https://www.youtube.com/watch?v=hBHh6A83HHc) to enable voice acting.
 
 ## What is planned for the future?
@@ -32,7 +32,7 @@ If you choose to compile CTExt yourself, copy the compiled `winmm.dll`, `ctext.d
 
 Alternatively, run `tools/deploy-and-launch.sh` to copy the build artifacts into the configured Steam installation and launch Chrono Trigger (App ID 613830).
 
-Quick-save files use the reserved `save_21.bin` through `save_23.bin` names, so the normal save slots are not overwritten.
+Quick saves use the native bookmark slot (`save_20.bin`) and therefore follow the game's normal Continue transition.
 
 Once the VM has completed its first setup and the Docker user has logged in, later builds can be triggered entirely from Linux with `tools/windows-builder-build.sh`. The script commits the current tree to the `build/ctext` branch and pushes it; the VM fetches that branch into a local Windows checkout and builds there, so MSBuild remains incremental per file while the shared folder only carries the request and package.
 

@@ -18,14 +18,6 @@ export namespace ct::addr {
 	P FIELD_IMPL_USER_SCROLL_DIAGONAL = 0x175DA0;
 	// Field input dispatcher; this runs for cardinal and diagonal movement.
 	P FIELD_IMPL_MOVEMENT_UPDATE = 0x175A40;
-	// Per-frame actor pass used as the safe post-construction sync boundary.
-	P FIELD_IMPL_ACTOR_FRAME_UPDATE = 0x17A4D0;
-	// FieldScene setup routine that initializes an actor record from the
-	// bookmark/map-entry cursor.  It is the proven writer of +0x84/+0x90.
-	P FIELD_IMPL_ACTOR_INITIALIZE = 0x16A7D0;
-	// Native field lifecycle resync: rebuilds movement state from the active
-	// actor and runs the camera/scroll state machine.
-	P FIELD_IMPL_SYNC_POSITION = 0x1734D0;
 	// Final damage helper used by the proven chrono_modloader god-mode patch.
 	P DAMAGE_TARGET = 0x8F980;
 
@@ -34,7 +26,6 @@ export namespace ct::addr {
 	// state layout; SAVE_STATE_FROM_BUFFER applies that layout back.
 	P SAVE_STATE_INIT = 0x19A5A0;
 	P SAVE_STATE_WRITE = 0x19CA20;
-	P SAVE_STATE_READ = 0x19BC40;
 	// Updates the native save metadata/current-slot bookkeeping before apply.
 	P SAVE_STATE_SYNC = 0x19DA30;
 	P SAVE_STATE_TO_BUFFER = 0x212C80;

@@ -26,9 +26,6 @@ import ct.scene;
 
 namespace ctext::mod_menu {
     bool HandleFieldInput();
-    void SetCurrentFieldImpl(void* fieldImpl);
-    void SyncFieldPositionAfterActorInitialize(void* fieldImpl);
-    void ObserveFieldActorFrame(void* fieldImpl);
 }
 
 namespace {
@@ -54,77 +51,12 @@ namespace {
     // save-manager+0x28 into a temporary state object, then calls the native
     // encrypted writer.  Reuse those exact routines so quick saves include
     // unsaved in-memory progress (not merely the last disk save).
-    constexpr int kQuickSlotCount = 3;
-    constexpr int kQuickSlotBase = 21; // outside the normal 0..20 slots
     constexpr int kNativeBookmarkSlot = 20;
     constexpr std::size_t kSaveStateBytes = 0x8000;
-    int quickSlot{};
-    // The executable constructs this as a stack object. Keep equivalent
-    // alignment for its SIMD/string members instead of relying on byte-array
-    // alignment.
+    // The native save helpers use a stack object with SIMD-aligned members.
     alignas(16) std::array<std::uint8_t, kSaveStateBytes> quickState{};
     bool quickLoadPending{};
-    void* currentFieldImpl{};
-    bool savedFieldPositionValid{};
-    std::int32_t savedFieldX{};
-    std::int32_t savedFieldY{};
-    std::uint32_t savedResumeX{};
-    std::uint32_t savedResumeY{};
-    std::uint32_t savedResumeDirection{};
-    bool restorePositionPending{};
-    bool cameraSyncPending{};
 
-    bool IsReadable(const void* address, std::size_t size) {
-        if (!address || size == 0) return false;
-        MEMORY_BASIC_INFORMATION info{};
-        if (VirtualQuery(address, &info, sizeof(info)) != sizeof(info) ||
-            info.State != MEM_COMMIT ||
-            (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0)
-            return false;
-
-        const auto start = reinterpret_cast<std::uintptr_t>(address);
-        const auto base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);
-        if (start < base) return false;
-        const auto offset = start - base;
-        return offset <= info.RegionSize && size <= info.RegionSize - offset;
-    }
-
-    bool CaptureFieldPosition(std::uint8_t* canvas) {
-        savedFieldPositionValid = false;
-        if (!canvas || !currentFieldImpl ||
-            !IsReadable(currentFieldImpl, 0xba0))
-            return false;
-
-        auto* bytes = static_cast<std::uint8_t*>(currentFieldImpl);
-        auto* fieldMap = *reinterpret_cast<cocos2d::Node**>(bytes + 0xb9c);
-        if (!fieldMap || !IsReadable(fieldMap, sizeof(void*)))
-            return false;
-
-        auto* fieldState = *reinterpret_cast<std::uint8_t**>(bytes + 0x850);
-        auto* movement = *reinterpret_cast<std::uint8_t**>(bytes + 0x854);
-        if (!fieldState || !movement ||
-            !IsReadable(fieldState, 0x11f0) ||
-            !IsReadable(movement, 0x158))
-            return false;
-
-        const auto active = *reinterpret_cast<std::int32_t*>(fieldState + 0x11ec);
-        if (active < 0 || active >= 0x80 || (active & 1) != 0)
-            return false;
-
-        auto* record = canvas + 0x6940 + (active / 2) * 0x154;
-        if (!IsReadable(record, 0x154))
-            return false;
-
-        const auto x = *reinterpret_cast<std::int32_t*>(record + 0x84);
-        const auto y = *reinterpret_cast<std::int32_t*>(record + 0x90);
-        if (x < 0 || x > 0xffff || y < 0 || y > 0xffff)
-            return false;
-
-        savedFieldX = x;
-        savedFieldY = y;
-        savedFieldPositionValid = true;
-        return true;
-    }
 
     std::string notificationText;
     int notificationFrames{};
@@ -134,138 +66,47 @@ namespace {
     using SaveStateCopy = void(__thiscall*)(void*, void*);
     using SaveStateFile = int(__fastcall*)(int, void*);
     using SaveStateSync = void(__thiscall*)(void*);
-    using FieldImplSyncPosition = void(__fastcall*)(void*);
 
     bool NativeQuickSave() {
         auto* manager = ct::ChronoCanvas::getInstance();
         if (!manager) return false;
 
         auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
-        CaptureFieldPosition(canvas);
-
         auto* liveState = canvas + ct::addr::SAVE_STATE_OFFSET;
         auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
         auto toBuffer = ADDR_AS(SaveStateCopy, ct::addr::SAVE_STATE_TO_BUFFER);
         auto write = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_WRITE);
         auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
 
-        // Refresh native metadata before copying the complete in-memory state.
-        sync(canvas + 0x68dc);
-        init(quickState.data());
-        toBuffer(liveState, quickState.data());
-
-        if (savedFieldPositionValid) {
-            // Native FieldImpl reconstructs the actor from these high bytes
-            // plus the low-byte bookmark values published during load.
-            *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1004) =
-                static_cast<std::uint32_t>(savedFieldX) >> 8;
-            *reinterpret_cast<std::uint32_t*>(quickState.data() + 0x1008) =
-                static_cast<std::uint32_t>(savedFieldY) >> 8;
-            savedResumeX = static_cast<std::uint32_t>(savedFieldX);
-            savedResumeY = static_cast<std::uint32_t>(savedFieldY);
-            savedResumeDirection =
-                *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4);
-        }
-
-        return write(kQuickSlotBase + quickSlot, quickState.data()) == 0;
-    }
-
-    bool NativeQuickLoad() {
-        auto* manager = ct::ChronoCanvas::getInstance();
-        if (!manager) return false;
-        auto init = ADDR_AS(SaveStateInit, ct::addr::SAVE_STATE_INIT);
-        auto fromFile = ADDR_AS(SaveStateFile, ct::addr::SAVE_STATE_READ);
-        auto sync = ADDR_AS(SaveStateSync, ct::addr::SAVE_STATE_SYNC);
-        // 0x615E30 ends in `ret 8`: both arguments are stack arguments and
-        // the callee removes them. Declaring this __cdecl corrupts ESP as
-        // soon as the function returns because the caller removes them too.
-        using SaveStateApplyFlow = void(__stdcall*)(void*, int);
-        auto applyFlow = ADDR_AS(SaveStateApplyFlow, ct::addr::SAVE_STATE_APPLY_FLOW);
-        init(quickState.data());
-        if (fromFile(kQuickSlotBase + quickSlot, quickState.data()) != 0) return false;
-
-        // Hidden quick-save files use slots 21..23, but the game's bookkeeping
-        // only supports normal slots 0..19 plus bookmark slot 20. Publish the
-        // logical bookmark slot before rebuilding common.bin; exposing 21..23
-        // here would violate native array/range assumptions.
-        auto* canvas = reinterpret_cast<std::uint8_t*>(manager);
+        // Save directly to the native bookmark slot. Continue will consume
+        // this exact state through the game's own load and scene path.
         *reinterpret_cast<std::uint32_t*>(canvas + 0x68ec) =
             static_cast<std::uint32_t>(kNativeBookmarkSlot);
         sync(canvas + 0x68dc);
+        init(quickState.data());
+        toBuffer(liveState, quickState.data());
+        return write(kNativeBookmarkSlot, quickState.data()) == 0;
+    }
 
-        // Modes 2/3 are the native bookmark variants. They set the additional
-        // resume flag that makes field creation consume the saved map cursor
-        // and coordinates, which ordinary save-point loading does not need.
-        applyFlow(quickState.data(), 3);
-
-        if (savedFieldPositionValid) {
-            *reinterpret_cast<std::uint32_t*>(canvas + 0x1099c) = savedResumeX;
-            *reinterpret_cast<std::uint32_t*>(canvas + 0x109a0) = savedResumeY;
-            *reinterpret_cast<std::uint32_t*>(canvas + 0x109a4) = savedResumeDirection;
-            *reinterpret_cast<std::uint32_t*>(canvas + 0x679c) = 1;
-            restorePositionPending = true;
-        }
-
-        // Applying the serialized state only updates ChronoCanvas.  Native
-        // bookmark loading then leaves the save/load scene and constructs a
-        // fresh FieldScene; that constructor consumes the bookmark resume
-        // flag and restores the saved map and coordinates.  F7 can be used
-        // without opening the native save/load UI, so perform that final
-        // scene replacement directly on the main thread.
+    bool OpenNativeContinue() {
         auto* director = cocos2d::Director::getInstance();
         if (!director) return false;
-        auto* fieldScene = ct::scene::SceneManager::create(0x11, 0);
-        if (!fieldScene) return false;
-        director->replaceScene(fieldScene);
+
+        // Scene 3 is the native TitleScene. Selecting Continue there invokes
+        // the game's bookmark dispatcher and its complete transition path.
+        auto* titleScene = ct::scene::SceneManager::create(3, 0);
+        if (!titleScene) return false;
+        director->replaceScene(titleScene);
         return true;
     }
 
-    void SetCurrentFieldImpl(void* fieldImpl) {
-        currentFieldImpl = fieldImpl;
-    }
-
-    void SyncFieldPositionAfterActorInitialize(void* fieldImpl) {
-        if (!restorePositionPending || !fieldImpl ||
-            !IsReadable(fieldImpl, 0x11f0))
-            return;
-
-        auto* state = *reinterpret_cast<std::uint8_t**>(
-            static_cast<std::uint8_t*>(fieldImpl) + 0x850);
-        auto* canvas = reinterpret_cast<std::uint8_t*>(
-            ct::ChronoCanvas::getInstance());
-        if (!state || !canvas || !IsReadable(state, 0x1184))
-            return;
-
-        const auto active = *reinterpret_cast<std::int32_t*>(state + 0x11ec);
-        const auto selected = *reinterpret_cast<std::int32_t*>(state + 0x1180);
-        if (active < 0 || active >= 0x80 || (active & 1) != 0 ||
-            selected != active)
-            return;
-
-        // Actor construction consumed the patched high/low coordinates.
-        // Defer the native movement/camera resync until the first complete
-        // actor frame, matching the native scene-construction lifecycle.
-        cameraSyncPending = true;
-        restorePositionPending = false;
-    }
-
-    void ObserveFieldActorFrame(void* fieldImpl) {
-        if (!cameraSyncPending || !fieldImpl) return;
-        ADDR_AS(FieldImplSyncPosition, ct::addr::FIELD_IMPL_SYNC_POSITION)(
-            fieldImpl);
-        cameraSyncPending = false;
-
-    }
     void ProcessDeferredActions() {
         if (!quickLoadPending) return;
         quickLoadPending = false;
-        const bool ok = NativeQuickLoad();
-        LOG_DEBUG("[ctext] quick load slot " << quickSlot << ": " << (ok ? "ok" : "failed"));
-        QueueNotification(ok ? "Quick load complete - slot " + std::to_string(quickSlot + 1)
-                              : "Quick load unavailable - slot " + std::to_string(quickSlot + 1));
+        const bool ok = OpenNativeContinue();
+        QueueNotification(ok ? "Native Continue ready - select Continue"
+                              : "Native Continue unavailable");
     }
-
-
     void QueueNotification(const std::string& text) {
         notificationText = text;
         notificationFrames = 180;
@@ -403,7 +244,7 @@ namespace {
             speedValue_->setColor(cocos2d::Color3B(246, 214, 116));
             panel->addChild(speedValue_);
 
-            hint_ = CreateMenuLabel("UP/DOWN SELECT   ENTER OPEN   SPACE CLOSE   F1 GOD  F5 SAVE  F6 SLOT  F7 LOAD", 9.0f);
+            hint_ = CreateMenuLabel("UP/DOWN SELECT   ENTER OPEN   SPACE CLOSE   F1 GOD  F5 BOOKMARK  F7 CONTINUE", 9.0f);
             hint_->setAnchorPoint(cocos2d::Vec2(0.5f, 0.0f));
             hint_->setPosition(panelSize.width * 0.5f, 16.0f);
             hint_->setColor(cocos2d::Color3B(155, 170, 195));
@@ -850,16 +691,6 @@ namespace {
 }
 
 export namespace ctext::mod_menu {
-    void SetCurrentFieldImpl(void* fieldImpl) {
-        ::SetCurrentFieldImpl(fieldImpl);
-    }
-
-    void SyncFieldPositionAfterActorInitialize(void* fieldImpl) {
-        ::SyncFieldPositionAfterActorInitialize(fieldImpl);
-    }
-    void ObserveFieldActorFrame(void* fieldImpl) {
-        ::ObserveFieldActorFrame(fieldImpl);
-    }
 
     void ProcessDeferredActions() {
         ::ProcessDeferredActions();
@@ -901,20 +732,14 @@ export namespace ctext::mod_menu {
                 ApplyGameSpeed(1.0f);
             } else if (i == 4) {
                 const bool ok = NativeQuickSave();
-                LOG_DEBUG("[ctext] quick save slot " << quickSlot << ": " << (ok ? "ok" : "failed"));
-                QueueNotification(ok ? "Quick save complete - slot " + std::to_string(quickSlot + 1)
-                                      : "Quick save failed - slot " + std::to_string(quickSlot + 1));
-            } else if (i == 5) {
-                quickSlot = (quickSlot + 1) % kQuickSlotCount;
-                LOG_DEBUG("[ctext] quick save slot selected: " << quickSlot);
-                QueueNotification("Quick-save slot " + std::to_string(quickSlot + 1));
+                QueueNotification(ok ? "Native bookmark saved"
+                                      : "Native bookmark save failed");
             } else if (i == 6) {
                 if (menuLayer) CloseMenu();
-                // The load flow replaces the active field/scene. Queue it for
-                // the main-loop boundary instead of running it inside the
-                // movement/input hook that detected F7.
+                // Open TitleScene at the main-loop boundary. Continue there
+                // invokes the game's native bookmark load and transition.
                 quickLoadPending = true;
-                QueueNotification("Quick load pending - slot " + std::to_string(quickSlot + 1));
+                QueueNotification("Native Continue pending");
             }
         }
 

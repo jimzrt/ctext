@@ -13,7 +13,6 @@ import ctext.mod_menu;
 using namespace ct;
 using namespace ct::addr;
 
-
 namespace {
 	C_FN_HOOK_A(
 		void, FieldImpl, UserScrollDiagonal,
@@ -30,40 +29,21 @@ namespace {
 
 		dword854[36] = x;
 		dword854[37] = y;
-
 		dword854[38] += x;
 		dword854[41] += y;
-
 		dword854[40] = dword854[38];
 		dword854[43] = dword854[41];
 	}
 
 	C_FN_HOOK_A(
-	void, FieldImpl, MovementUpdate,
+		void, FieldImpl, MovementUpdate,
 		FIELD_IMPL_MOVEMENT_UPDATE
 	) {
-		ctext::mod_menu::SetCurrentFieldImpl(this);
-		// Polling here catches SPACE even while the player is standing still.
-		// Returning without calling the original also blocks cardinal movement.
+		// Polling here catches function keys while the player is standing
+		// still. The same input boundary is used by field and world-map scenes.
 		if (ctext::mod_menu::HandleFieldInput())
 			return;
 		C_CALL_ORIG();
-	}
-
-	C_FN_HOOK_A(
-		void, FieldImpl, ActorFrameUpdate,
-		FIELD_IMPL_ACTOR_FRAME_UPDATE
-	) {
-		C_CALL_ORIG();
-		ctext::mod_menu::ObserveFieldActorFrame(this);
-	}
-	C_FN_HOOK_A(
-		void, FieldImpl, ActorInitialize,
-		FIELD_IMPL_ACTOR_INITIALIZE,
-		int, setupMode
-	) {
-		C_CALL_ORIG(setupMode);
-		ctext::mod_menu::SyncFieldPositionAfterActorInitialize(this);
 	}
 
 	FN_HOOK_A(
@@ -75,9 +55,11 @@ namespace {
 		CALL_ORIG(god_mode_damage_target, context);
 		if (!ctext::Config::Get().GameplayGodMode || !context ||
 			caller != reinterpret_cast<void*>(ADDR(0x8CA51))) return;
-		auto* state = *reinterpret_cast<uint8_t**>(static_cast<uint8_t*>(context) + 0x4c);
+		auto* state = *reinterpret_cast<uint8_t**>(
+			static_cast<uint8_t*>(context) + 0x4c);
 		if (!state) return;
-		const uint32_t target = *reinterpret_cast<uint32_t*>(state + 0x1468) & 0xffff;
+		const uint32_t target =
+			*reinterpret_cast<uint32_t*>(state + 0x1468) & 0xffff;
 		if ((target & 0x7f) != 0) return;
 		auto* amount = reinterpret_cast<int32_t*>(state);
 		if (target <= 0x100) *amount = 0;
@@ -85,13 +67,9 @@ namespace {
 	}
 }
 
-
 export namespace ctext::hooks {
 	void EnableFieldImplHooks() {
-		// MovementUpdate handles menu input and field-position capture;
-		// ActorInitialize performs the post-load camera synchronization.
 		ENABLE_C_FN_HOOK(FieldImpl, MovementUpdate);
-		ENABLE_C_FN_HOOK(FieldImpl, ActorInitialize);
 		ENABLE_C_FN_HOOK(FieldImpl, UserScrollDiagonal);
 		ENABLE_FN_HOOK(god_mode_damage_target);
 	}
